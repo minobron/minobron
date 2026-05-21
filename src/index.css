@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Safe area per iPhone notch/home bar */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
+}
+
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Scrollbar invisibile */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Overscroll behavior */
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Smooth scroll */
+* { scroll-behavior: smooth; }
+
+/* Input date appearance su mobile */
+input[type="date"], input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Animazione base per le pagine */
+@layer utilities {
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+}
+
+/* Dark mode transizione fluida */
+html { transition: background-color 0.3s ease, color 0.3s ease; }
