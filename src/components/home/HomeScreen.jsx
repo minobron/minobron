@@ -1,72 +1,87 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore'
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { format } from 'date-fns'
+import { format, isToday, isTomorrow } from 'date-fns'
 import { it } from 'date-fns/locale'
 
-const PRIORITY_COLORS = { high: 'bg-rose-100 text-rose-600', medium: 'bg-amber-100 text-amber-600', low: 'bg-emerald-100 text-emerald-600' }
-const PRIORITY_LABELS = { high: 'Alta', medium: 'Media', low: 'Bassa' }
+const PRIORITY_DOT = { high: 'bg-rose-500', medium: 'bg-amber-400', low: 'bg-emerald-500' }
 
 export default function HomeScreen() {
-  const { user }             = useAuth()
-  const { activeWorkspace, members }  = useWorkspace()
-  const navigate             = useNavigate()
+  const { user }            = useAuth()
+  const { activeWorkspace, members } = useWorkspace()
+  const navigate            = useNavigate()
   const [myTasks, setMyTasks]   = useState([])
   const [pins, setPins]         = useState([])
   const [activity, setActivity] = useState([])
   const [events, setEvents]     = useState([])
-
   const wsId = activeWorkspace?.id
 
-  // Task assegnati a me
   useEffect(() => {
     if (!wsId || !user) return
     const q = query(
       collection(db, `workspaces/${wsId}/tasks`),
       where('assignees', 'array-contains', user.uid),
-      where('status', '!=', 'done'),
-      orderBy('status'),
-      orderBy('dueDate'),
-      limit(10)
+      limit(30)
     )
-    return onSnapshot(q, snap => setMyTasks(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    return onSnapshot(q, snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const active = all
+        .filter(t => t.status !== 'done')
+        .sort((a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1))
+      setMyTasks(active)
+    })
   }, [wsId, user])
 
-  // In evidenza
   useEffect(() => {
     if (!wsId) return
     const q = query(collection(db, `workspaces/${wsId}/pins`), orderBy('createdAt', 'desc'), limit(5))
     return onSnapshot(q, snap => setPins(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [wsId])
 
-  // Attività recente
   useEffect(() => {
     if (!wsId) return
     const q = query(collection(db, `workspaces/${wsId}/activity`), orderBy('createdAt', 'desc'), limit(8))
     return onSnapshot(q, snap => setActivity(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [wsId])
 
-  // Prossimi eventi
   useEffect(() => {
     if (!wsId) return
-    const q = query(collection(db, `workspaces/${wsId}/events`), where('date', '>=', new Date()), orderBy('date'), limit(3))
-    return onSnapshot(q, snap => setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    const q = query(collection(db, `workspaces/${wsId}/events`), orderBy('date', 'asc'), limit(5))
+    return onSnapshot(q, snap => {
+      const now = new Date()
+      setEvents(snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(e => {
+          const d = e.date?.toDate ? e.date.toDate() : new Date(e.date)
+          return d >= now
+        })
+        .slice(0, 3))
+    })
   }, [wsId])
 
-  const getMember = (uid) => members.find(m => m.id === uid)
+  const getMember = uid => members.find(m => m.id === uid)
+
+  const formatDue = (date) => {
+    if (!date) return null
+    const d = date.toDate ? date.toDate() : new Date(date)
+    if (isToday(d))    return { label: 'Oggi',   color: 'text-amber-400' }
+    if (isTomorrow(d)) return { label: 'Domani', color: 'text-primary-400' }
+    return { label: format(d, 'd MMM', { locale: it }), color: 'text-gray-500' }
+  }
 
   return (
-    <div className="p-4 max-w-lg mx-auto space-y-6">
+    <div className="p-4 max-w-lg mx-auto space-y-5 pb-2">
+
       {/* Saluto */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="pt-1">
+        <h2 className="text-2xl font-bold text-white">
           Ciao, {user?.name?.split(' ')[0]} 👋
         </h2>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1 capitalize">
+        <p className="text-gray-500 text-sm mt-0.5 capitalize">
           {format(new Date(), "EEEE d MMMM", { locale: it })}
         </p>
       </motion.div>
@@ -76,11 +91,13 @@ export default function HomeScreen() {
         <Section title="In evidenza" icon="📌">
           <div className="space-y-2">
             {pins.map(pin => (
-              <div key={pin.id} className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800">
-                <span className="text-lg">{pin.emoji || '📌'}</span>
+              <div key={pin.id}
+                className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20"
+                style={{ background: 'rgba(245,158,11,0.06)' }}>
+                <span className="text-base mt-0.5">{pin.emoji || '📌'}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{pin.title}</p>
-                  {pin.content && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{pin.content}</p>}
+                  <p className="text-sm font-semibold text-white truncate">{pin.title}</p>
+                  {pin.content && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{pin.content}</p>}
                 </div>
               </div>
             ))}
@@ -89,27 +106,38 @@ export default function HomeScreen() {
       )}
 
       {/* I miei task */}
-      <Section title="I miei task" icon="✅" action={{ label: 'Vedi tutti', onClick: () => navigate('/projects') }}>
+      <Section
+        title="I miei task"
+        icon="✅"
+        badge={myTasks.length || null}
+        action={{ label: 'Vedi tutti', onClick: () => navigate('/projects') }}
+      >
         {myTasks.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">Nessun task assegnato a te</p>
+          <EmptyState emoji="🎉" text="Nessun task in sospeso" />
         ) : (
-          <div className="space-y-2">
-            {myTasks.slice(0, 5).map(task => (
-              <motion.div
-                key={task.id}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => navigate(`/projects/task/${task.id}`)}
-                className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm cursor-pointer"
-              >
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${task.priority === 'high' ? 'bg-rose-400' : task.priority === 'medium' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                <p className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{task.title}</p>
-                {task.dueDate && (
-                  <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
-                    {format(task.dueDate.toDate?.() || new Date(task.dueDate), 'd MMM', { locale: it })}
-                  </span>
-                )}
-              </motion.div>
-            ))}
+          <div className="space-y-1.5">
+            {myTasks.slice(0, 6).map((task, i) => {
+              const dot = PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium
+              const due = formatDue(task.dueDate)
+              return (
+                <motion.div key={task.id}
+                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => navigate(`/projects/task/${task.id}`)}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
+                  style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
+                  <p className="flex-1 text-sm font-medium text-gray-200 truncate">{task.title}</p>
+                  {due && <span className={`text-xs flex-shrink-0 font-medium ${due.color}`}>{due.label}</span>}
+                  {task.status === 'inprogress' && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-400 font-semibold flex-shrink-0">
+                      In corso
+                    </span>
+                  )}
+                </motion.div>
+              )
+            })}
           </div>
         )}
       </Section>
@@ -117,23 +145,28 @@ export default function HomeScreen() {
       {/* Prossimi eventi */}
       {events.length > 0 && (
         <Section title="Prossimi eventi" icon="📅">
-          <div className="space-y-2">
-            {events.map(ev => (
-              <div key={ev.id} className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-                <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-900 flex flex-col items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-bold text-primary-600 dark:text-primary-400 uppercase">
-                    {format(ev.date.toDate?.() || new Date(ev.date), 'MMM', { locale: it })}
-                  </span>
-                  <span className="text-sm font-bold text-primary-700 dark:text-primary-300 leading-none">
-                    {format(ev.date.toDate?.() || new Date(ev.date), 'd')}
-                  </span>
+          <div className="space-y-1.5">
+            {events.map(ev => {
+              const date = ev.date?.toDate ? ev.date.toDate() : new Date(ev.date)
+              return (
+                <div key={ev.id}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                  style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div className="w-10 h-10 rounded-xl bg-primary-500/15 flex flex-col items-center justify-center flex-shrink-0">
+                    <span className="text-[10px] font-bold text-primary-400 uppercase leading-none">
+                      {format(date, 'MMM', { locale: it })}
+                    </span>
+                    <span className="text-sm font-bold text-primary-300 leading-none mt-0.5">
+                      {format(date, 'd')}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-200">{ev.title}</p>
+                    {ev.description && <p className="text-xs text-gray-500 mt-0.5">{ev.description}</p>}
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{ev.title}</p>
-                  {ev.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{ev.description}</p>}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </Section>
       )}
@@ -141,16 +174,19 @@ export default function HomeScreen() {
       {/* Attività recente */}
       {activity.length > 0 && (
         <Section title="Attività recente" icon="🕐">
-          <div className="space-y-1">
+          <div>
             {activity.map(a => {
               const actor = getMember(a.userId)
               return (
-                <div key={a.id} className="flex items-start gap-3 py-2">
+                <div key={a.id} className="flex items-start gap-3 py-2.5 border-b last:border-0"
+                  style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                   {actor?.photoURL
                     ? <img src={actor.photoURL} alt="" className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5" />
-                    : <div className="w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-primary-600">{actor?.name?.charAt(0)}</div>
+                    : <div className="w-6 h-6 rounded-full bg-primary-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-white">
+                        {actor?.name?.charAt(0) || '?'}
+                      </div>
                   }
-                  <p className="text-sm text-gray-600 dark:text-gray-400 leading-snug">{a.text}</p>
+                  <p className="text-sm text-gray-500 leading-snug">{a.text}</p>
                 </div>
               )
             })}
@@ -161,18 +197,34 @@ export default function HomeScreen() {
   )
 }
 
-function Section({ title, icon, action, children }) {
+function Section({ title, icon, badge, action, children }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-          <span>{icon}</span>{title}
-        </h3>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-base">{icon}</span>
+          <h3 className="text-sm font-semibold text-gray-300">{title}</h3>
+          {badge != null && (
+            <span className="text-[10px] bg-primary-500/20 text-primary-400 font-bold px-1.5 py-0.5 rounded-full">
+              {badge}
+            </span>
+          )}
+        </div>
         {action && (
-          <button onClick={action.onClick} className="text-xs text-primary-500 font-medium">{action.label}</button>
+          <button onClick={action.onClick} className="text-xs text-primary-400 font-medium">
+            {action.label}
+          </button>
         )}
       </div>
       {children}
     </motion.div>
+  )
+}
+
+function EmptyState({ emoji, text }) {
+  return (
+    <div className="flex items-center justify-center gap-2 py-6 text-gray-600 text-sm">
+      <span>{emoji}</span><span>{text}</span>
+    </div>
   )
 }

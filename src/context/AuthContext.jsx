@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, googleProvider, db } from '../firebase/config'
 
 const AuthContext = createContext(null)
@@ -10,34 +10,59 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubUser = null
+
+    const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (unsubUser) { unsubUser(); unsubUser = null }
+
       if (firebaseUser) {
-        // Salva / aggiorna profilo utente su Firestore
         const ref = doc(db, 'users', firebaseUser.uid)
-        const snap = await getDoc(ref)
-        if (!snap.exists()) {
-          await setDoc(ref, {
-            uid:       firebaseUser.uid,
-            name:      firebaseUser.displayName,
-            email:     firebaseUser.email,
-            photoURL:  firebaseUser.photoURL,
-            createdAt: serverTimestamp()
-          })
-        }
-        setUser({ uid: firebaseUser.uid, name: firebaseUser.displayName, email: firebaseUser.email, photoURL: firebaseUser.photoURL })
+
+        // Crea il documento utente se non esiste
+        await setDoc(ref, {
+          uid:       firebaseUser.uid,
+          name:      firebaseUser.displayName,
+          email:     firebaseUser.email,
+          photoURL:  firebaseUser.photoURL,
+          createdAt: serverTimestamp()
+        }, { merge: true })
+
+        // Listener in tempo reale: se il nome cambia su Firestore, si aggiorna subito
+        unsubUser = onSnapshot(ref, (snap) => {
+          if (snap.exists()) {
+            const data = snap.data()
+            setUser({
+              uid:      firebaseUser.uid,
+              name:     data.name || firebaseUser.displayName,
+              email:    data.email || firebaseUser.email,
+              photoURL: data.photoURL || firebaseUser.photoURL,
+            })
+          }
+          setLoading(false)
+        })
       } else {
         setUser(null)
+        setLoading(false)
       }
-      setLoading(false)
     })
-    return unsub
+
+    return () => {
+      unsubAuth()
+      if (unsubUser) unsubUser()
+    }
   }, [])
 
   const loginWithGoogle = () => signInWithPopup(auth, googleProvider)
-  const logout = () => signOut(auth)
+  const logout          = () => signOut(auth)
+
+  // Aggiorna nome: scrive su Firestore → il listener lo riporta subito nello stato
+  const updateUserName = async (name) => {
+    if (!user?.uid || !name.trim()) return
+    await updateDoc(doc(db, 'users', user.uid), { name: name.trim() })
+  }
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithGoogle, logout, updateUserName }}>
       {children}
     </AuthContext.Provider>
   )

@@ -1,145 +1,220 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, addDoc, serverTimestamp, orderBy, query } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, orderBy, query } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useLongPress } from '../../hooks/useLongPress'
 
-const PROJECT_COLORS = [
-  { id: 'indigo', bg: 'bg-indigo-100 dark:bg-indigo-900', text: 'text-indigo-700 dark:text-indigo-300', dot: 'bg-indigo-400' },
-  { id: 'rose',   bg: 'bg-rose-100 dark:bg-rose-900',     text: 'text-rose-700 dark:text-rose-300',     dot: 'bg-rose-400' },
-  { id: 'emerald',bg: 'bg-emerald-100 dark:bg-emerald-900',text:'text-emerald-700 dark:text-emerald-300',dot: 'bg-emerald-400' },
-  { id: 'amber',  bg: 'bg-amber-100 dark:bg-amber-900',   text: 'text-amber-700 dark:text-amber-300',   dot: 'bg-amber-400' },
-  { id: 'sky',    bg: 'bg-sky-100 dark:bg-sky-900',       text: 'text-sky-700 dark:text-sky-300',       dot: 'bg-sky-400' },
-  { id: 'violet', bg: 'bg-violet-100 dark:bg-violet-900', text: 'text-violet-700 dark:text-violet-300', dot: 'bg-violet-400' },
-  { id: 'pink',   bg: 'bg-pink-100 dark:bg-pink-900',     text: 'text-pink-700 dark:text-pink-300',     dot: 'bg-pink-400' },
-  { id: 'teal',   bg: 'bg-teal-100 dark:bg-teal-900',     text: 'text-teal-700 dark:text-teal-300',     dot: 'bg-teal-400' },
-]
-
-const EMOJIS = ['📋','💡','🤝','📦','💰','📸','✉️','🎯','📣','🗂️','🔧','⭐']
+const EMOJIS = ['📋','💡','🤝','📦','💰','📸','✉️','🎯','📣','🗂️','🔧','⭐','🚀','💎','🌟','🎨','📝','🔑','💼','🌈','⚡','🎭','🏆','💬','📊','🛒','🧩','🔥','💫','🎪']
+const PRESET_COLORS = ['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#64748b']
 
 export default function ProjectsScreen() {
   const { activeWorkspace } = useWorkspace()
   const { user }            = useAuth()
   const navigate            = useNavigate()
-  const [projects, setProjects] = useState([])
-  const [showNew, setShowNew]   = useState(false)
-  const [newName, setNewName]   = useState('')
-  const [newColor, setNewColor] = useState(PROJECT_COLORS[0])
-  const [newEmoji, setNewEmoji] = useState('📋')
+  const [projects, setProjects]   = useState([])
+  const [loaded, setLoaded]       = useState(false)
+  const [showNew, setShowNew]     = useState(false)
+  const [showEdit, setShowEdit]   = useState(null)
+  const [contextMenu, setContextMenu] = useState(null)
+  const [newName, setNewName]     = useState('')
+  const [newColor, setNewColor]   = useState('#6366f1')
+  const [newEmoji, setNewEmoji]   = useState('📋')
+  const [customEmoji, setCustomEmoji] = useState('')
   const wsId = activeWorkspace?.id
 
   useEffect(() => {
     if (!wsId) return
     const q = query(collection(db, `workspaces/${wsId}/projects`), orderBy('createdAt', 'desc'))
-    return onSnapshot(q, snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    return onSnapshot(q, snap => {
+      setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setLoaded(true)
+    })
   }, [wsId])
 
   const createProject = async () => {
     if (!newName.trim() || !wsId) return
+    const emoji = customEmoji.trim() || newEmoji
     await addDoc(collection(db, `workspaces/${wsId}/projects`), {
-      name: newName.trim(), color: newColor.id, emoji: newEmoji,
+      name: newName.trim(), color: newColor, emoji,
       createdBy: user.uid, createdAt: serverTimestamp(), taskCount: 0
     })
-    setNewName(''); setShowNew(false)
+    resetForm(); setShowNew(false)
   }
+
+  const updateProject = async () => {
+    if (!showEdit || !newName.trim()) return
+    const emoji = customEmoji.trim() || newEmoji
+    await updateDoc(doc(db, `workspaces/${wsId}/projects/${showEdit.id}`), { name: newName.trim(), color: newColor, emoji })
+    resetForm(); setShowEdit(null)
+  }
+
+  const deleteProject = async (id) => {
+    await deleteDoc(doc(db, `workspaces/${wsId}/projects/${id}`))
+    setContextMenu(null)
+  }
+
+  const openEdit = (project) => {
+    setNewName(project.name)
+    setNewColor(project.color?.startsWith('#') ? project.color : '#6366f1')
+    setNewEmoji(project.emoji || '📋')
+    setCustomEmoji('')
+    setShowEdit(project)
+    setContextMenu(null)
+  }
+
+  const resetForm = () => { setNewName(''); setNewColor('#6366f1'); setNewEmoji('📋'); setCustomEmoji('') }
+
+  if (!loaded) return (
+    <div className="flex items-center justify-center h-40">
+      <div className="w-5 h-5 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
 
   return (
     <div className="p-4 max-w-lg mx-auto">
-      <div className="grid grid-cols-2 gap-3">
-        {projects.map((p, i) => {
-          const c = PROJECT_COLORS.find(x => x.id === p.color) || PROJECT_COLORS[0]
-          return (
-            <motion.button
-              key={p.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.05 }}
-              whileTap={{ scale: 0.96 }}
+      {projects.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <span className="text-5xl">📋</span>
+          <p className="text-gray-500 text-sm text-center">Nessun progetto ancora.<br/>Creane uno per iniziare.</p>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={() => { resetForm(); setShowNew(true) }}
+            className="px-6 py-2.5 bg-primary-600 text-white font-semibold rounded-xl text-sm">
+            + Nuovo progetto
+          </motion.button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {projects.map((p, i) => (
+            <ProjectCard key={p.id} project={p} i={i}
               onClick={() => navigate(`/projects/${p.id}`)}
-              className="flex flex-col gap-3 p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm text-left"
-            >
-              <div className={`w-10 h-10 rounded-xl ${c.bg} flex items-center justify-center text-xl`}>
-                {p.emoji}
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900 dark:text-white text-sm leading-snug">{p.name}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{p.taskCount || 0} task</p>
-              </div>
-            </motion.button>
-          )
-        })}
+              onLongPress={() => setContextMenu(p)} />
+          ))}
+          <motion.button whileTap={{ scale: 0.96 }} onClick={() => { resetForm(); setShowNew(true) }}
+            className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl min-h-[120px]"
+            style={{ border: '2px dashed rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)' }}>
+            <svg className="w-7 h-7 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+            </svg>
+            <span className="text-xs font-medium text-gray-600">Nuovo progetto</span>
+          </motion.button>
+        </div>
+      )}
 
-        {/* Nuovo progetto */}
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          onClick={() => setShowNew(true)}
-          className="flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border-2 border-dashed border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500"
-        >
-          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-          </svg>
-          <span className="text-xs font-medium">Nuovo progetto</span>
-        </motion.button>
-      </div>
-
-      {/* Modal nuovo progetto */}
       <AnimatePresence>
-        {showNew && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/40 flex items-end"
-            onClick={e => e.target === e.currentTarget && setShowNew(false)}
-          >
-            <motion.div
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full bg-white dark:bg-gray-900 rounded-t-3xl p-6 pb-10 max-w-lg mx-auto"
-            >
-              <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-6" />
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Nuovo progetto</h3>
-
-              {/* Emoji */}
-              <div className="flex gap-2 flex-wrap mb-4">
-                {EMOJIS.map(e => (
-                  <button key={e} onClick={() => setNewEmoji(e)}
-                    className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all ${newEmoji === e ? 'bg-primary-100 dark:bg-primary-900 ring-2 ring-primary-400' : 'bg-gray-100 dark:bg-gray-800'}`}>
-                    {e}
-                  </button>
-                ))}
+        {contextMenu && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={() => setContextMenu(null)}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="w-full max-w-lg mx-auto rounded-t-3xl overflow-hidden"
+              style={{ background: '#1a1a26', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <span className="text-2xl">{contextMenu.emoji}</span>
+                <p className="font-bold text-white">{contextMenu.name}</p>
               </div>
+              {[
+                { label: '✏️  Modifica', action: () => openEdit(contextMenu) },
+                { label: '🗑️  Elimina',  action: () => deleteProject(contextMenu.id), danger: true },
+              ].map(item => (
+                <button key={item.label} onClick={item.action}
+                  className={`w-full text-left px-5 py-4 text-sm font-medium ${item.danger ? 'text-rose-400' : 'text-gray-200'}`}>
+                  {item.label}
+                </button>
+              ))}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              {/* Colore */}
-              <div className="flex gap-2 mb-4">
-                {PROJECT_COLORS.map(c => (
-                  <button key={c.id} onClick={() => setNewColor(c)}
-                    className={`w-7 h-7 rounded-full ${c.dot} transition-transform ${newColor.id === c.id ? 'scale-125 ring-2 ring-offset-2 ring-gray-400' : ''}`} />
-                ))}
-              </div>
+      <AnimatePresence>
+        {(showNew || showEdit) && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={e => e.target === e.currentTarget && (showNew ? setShowNew(false) : setShowEdit(null))}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
+              style={{ background: '#1a1a26', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))', maxHeight: '90vh', overflowY: 'auto' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
+              <h3 className="text-base font-bold text-white">{showNew ? 'Nuovo progetto' : 'Modifica progetto'}</h3>
 
-              {/* Nome */}
-              <input
-                autoFocus
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && createProject()}
+              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (showNew ? createProject() : updateProject())}
                 placeholder="Nome del progetto"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-400 mb-4"
-              />
+                className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
 
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={createProject}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Colore</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {PRESET_COLORS.map(c => (
+                    <button key={c} onClick={() => setNewColor(c)}
+                      className="w-8 h-8 rounded-full transition-transform active:scale-95"
+                      style={{ backgroundColor: c, outline: newColor === c ? `2px solid ${c}` : 'none', outlineOffset: '2px' }} />
+                  ))}
+                  <input type="color" value={newColor} onChange={e => setNewColor(e.target.value)}
+                    className="w-8 h-8 rounded-full cursor-pointer border-0" />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Icona</p>
+                <div className="flex gap-1.5 flex-wrap mb-2">
+                  {EMOJIS.map(e => (
+                    <button key={e} onClick={() => { setNewEmoji(e); setCustomEmoji('') }}
+                      className="w-9 h-9 rounded-xl text-lg flex items-center justify-center"
+                      style={{ background: newEmoji === e && !customEmoji ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)', outline: newEmoji === e && !customEmoji ? '2px solid #6366f1' : 'none' }}>
+                      {e}
+                    </button>
+                  ))}
+                </div>
+                <input value={customEmoji} onChange={e => setCustomEmoji(e.target.value)}
+                  placeholder="Oppure digita qualsiasi emoji…"
+                  className="w-full px-3 py-2 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+              </div>
+
+              <motion.button whileTap={{ scale: 0.97 }}
+                onClick={showNew ? createProject : updateProject}
                 disabled={!newName.trim()}
-                className="w-full py-3 bg-primary-500 text-white font-semibold rounded-xl disabled:opacity-40"
-              >
-                Crea progetto
+                className="w-full py-3 bg-primary-600 text-white font-semibold rounded-xl text-sm disabled:opacity-40">
+                {showNew ? '✓ Crea progetto' : '✓ Salva modifiche'}
               </motion.button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+function ProjectCard({ project, i, onClick, onLongPress }) {
+  const lp    = useLongPress(onLongPress)
+  const color = project.color?.startsWith('#') ? project.color : '#6366f1'
+  return (
+    <motion.button
+      initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: i * 0.05 }} whileTap={{ scale: 0.96 }}
+      onClick={onClick}
+      className="flex flex-col gap-3 p-4 rounded-2xl text-left select-none"
+      style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.06)' }}
+      {...lp}>
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+        style={{ backgroundColor: color + '22' }}>
+        {project.emoji}
+      </div>
+      <div>
+        <p className="font-semibold text-white text-sm leading-snug">{project.name}</p>
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+          <p className="text-xs text-gray-600">{project.taskCount || 0} task</p>
+        </div>
+      </div>
+    </motion.button>
   )
 }

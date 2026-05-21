@@ -2,48 +2,118 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Safe area per iPhone notch/home bar */
-:root {
-  --sat: env(safe-area-inset-top);
-  --sab: env(safe-area-inset-bottom);
-  --sal: env(safe-area-inset-left);
-  --sar: env(safe-area-inset-right);
+/* ============================================================
+   Viewport — usa dvh per evitare il salto da keyboard su mobile
+   ============================================================ */
+html, body {
+  height: 100%;
+  min-height: 100dvh;
 }
 
-.pt-safe { padding-top: env(safe-area-inset-top); }
-.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
 
-/* Scrollbar invisibile */
+/* ============================================================
+   Safe area (iPhone notch / Dynamic Island / home indicator)
+   ============================================================ */
+:root {
+  --sat: env(safe-area-inset-top,    0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left,   0px);
+  --sar: env(safe-area-inset-right,  0px);
+  --header-h:    calc(3.5rem + var(--sat));
+  --bottomnav-h: calc(4rem  + var(--sab));
+}
+
+.pt-safe  { padding-top:    var(--sat); }
+.pb-safe  { padding-bottom: var(--sab); }
+
+/* ============================================================
+   Base dark theme — applichiamo il dark di default
+   ============================================================ */
+html {
+  background-color: #0d0d14;
+  color-scheme: dark;
+}
+
+/* ============================================================
+   Typography
+   ============================================================ */
+body {
+  font-family:             'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing:  antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior:     none;
+  -webkit-tap-highlight-color: transparent;
+  user-select:             none;
+  touch-action:            manipulation;
+  color:                   #f1f1f8;
+}
+
+input, textarea {
+  user-select: auto;
+  -webkit-user-select: auto;
+}
+
+/* ============================================================
+   Scrollbar invisibile
+   ============================================================ */
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Overscroll behavior */
-body {
-  overscroll-behavior: none;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-
-/* Smooth scroll */
-* { scroll-behavior: smooth; }
-
-/* Input date appearance su mobile */
-input[type="date"], input[type="time"] {
+/* ============================================================
+   Input date / time — rimuove stile iOS nativo
+   ============================================================ */
+input[type="date"],
+input[type="time"] {
   -webkit-appearance: none;
   appearance: none;
 }
 
-/* Animazione base per le pagine */
+/* ============================================================
+   Dark mode transizione fluida
+   ============================================================ */
+html {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ============================================================
+   Snap scrolling per kanban board
+   ============================================================ */
+.snap-x { scroll-snap-type: x mandatory; }
+.snap-center { scroll-snap-align: center; }
+.snap-start  { scroll-snap-align: start; }
+
+/* ============================================================
+   Kanban column
+   ============================================================ */
+.kanban-col {
+  flex-shrink: 0;
+  width: 78vw;
+  max-width: 300px;
+  scroll-snap-align: start;
+}
+
+/* ============================================================
+   Animazioni
+   ============================================================ */
 @layer utilities {
   .animate-slide-up {
     animation: slideUp 0.3s ease-out;
   }
   @keyframes slideUp {
-    from { transform: translateY(20px); opacity: 0; }
+    from { transform: translateY(16px); opacity: 0; }
     to   { transform: translateY(0);    opacity: 1; }
   }
-}
 
-/* Dark mode transizione fluida */
-html { transition: background-color 0.3s ease, color 0.3s ease; }
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+}

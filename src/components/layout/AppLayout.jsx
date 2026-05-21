@@ -7,16 +7,22 @@ export default function AppLayout() {
   const location = useLocation()
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 font-sans">
+    <div className="bg-[#0d0d14] font-sans" style={{ minHeight: '100dvh' }}>
       <Header />
-      <main className="pt-14 pb-20 min-h-screen">
+      <main
+        style={{
+          paddingTop:    'var(--header-h)',
+          paddingBottom: 'var(--bottomnav-h)',
+          minHeight:     '100dvh',
+        }}
+      >
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
           >
             <Outlet />
           </motion.div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext'
@@ -12,18 +12,30 @@ import TaskDetail from './components/projects/TaskDetail'
 import ChatScreen from './components/chat/ChatScreen'
 import CalendarScreen from './components/calendar/CalendarScreen'
 import ArchiveScreen from './components/archive/ArchiveScreen'
+import SettingsScreen from './components/settings/SettingsScreen'
 
 function AppRoutes() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading }                                  = useAuth()
   const { activeWorkspace, workspaces, switchWorkspace, loading: wsLoading } = useWorkspace()
 
-  // Dark mode automatico
+  // Tema: rispetta localStorage (impostato da SettingsScreen), altrimenti usa sistema
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = (e) => document.documentElement.classList.toggle('dark', e.matches)
-    apply(mq)
-    mq.addEventListener('change', apply)
-    return () => mq.removeEventListener('change', apply)
+    const saved = localStorage.getItem('theme')
+    const root  = document.documentElement
+    const applySystem = (dark) => dark ? root.classList.add('dark') : root.classList.remove('dark')
+
+    if (saved === 'dark') {
+      root.classList.add('dark')
+    } else if (saved === 'light') {
+      root.classList.remove('dark')
+    } else {
+      // Auto — segue sistema
+      const mq = window.matchMedia('(prefers-color-scheme: dark)')
+      applySystem(mq.matches)
+      const onChange = (e) => applySystem(e.matches)
+      mq.addEventListener('change', onChange)
+      return () => mq.removeEventListener('change', onChange)
+    }
   }, [])
 
   if (authLoading || wsLoading) {
@@ -50,13 +62,14 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Navigate to="/home" replace />} />
-          <Route path="home" element={<HomeScreen />} />
-          <Route path="projects" element={<ProjectsScreen />} />
-          <Route path="projects/:projectId" element={<ProjectDetail />} />
-          <Route path="projects/task/:taskId" element={<TaskDetail />} />
-          <Route path="chat" element={<ChatScreen />} />
-          <Route path="calendar" element={<CalendarScreen />} />
-          <Route path="archive" element={<ArchiveScreen />} />
+          <Route path="home"                   element={<HomeScreen />} />
+          <Route path="projects"               element={<ProjectsScreen />} />
+          <Route path="projects/:projectId"    element={<ProjectDetail />} />
+          <Route path="projects/task/:taskId"  element={<TaskDetail />} />
+          <Route path="chat"                   element={<ChatScreen />} />
+          <Route path="calendar"               element={<CalendarScreen />} />
+          <Route path="archive"                element={<ArchiveScreen />} />
+          <Route path="settings"               element={<SettingsScreen />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>
       </Routes>
