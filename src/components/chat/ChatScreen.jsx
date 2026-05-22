@@ -252,7 +252,7 @@ export default function ChatScreen() {
         {showMentions && filteredMembers.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
             className="mx-4 mb-1 rounded-2xl overflow-hidden flex-shrink-0"
-            style={{ background: '#1a1a26', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+            style={{ background: 'var(--c-surface2)', border: '1px solid var(--c-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
             {filteredMembers.map(m => (
               <button key={m.id}
                 onMouseDown={e => { e.preventDefault(); insertMention(m) }}
@@ -276,7 +276,7 @@ export default function ChatScreen() {
 
       {/* Input bar */}
       <div className="px-3 py-2.5 flex items-center gap-2 flex-shrink-0"
-        style={{ background: '#0d0d14', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        style={{ background: 'var(--c-bg)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <input ref={fileRef} type="file" className="hidden"
           onChange={e => uploadFile(e.target.files[0])} />
 
@@ -292,7 +292,7 @@ export default function ChatScreen() {
         </button>
 
         <div className="flex-1 flex items-center rounded-2xl px-4 py-2.5"
-          style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.08)' }}>
+          style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }}>
           <input ref={inputRef} value={text} onChange={handleTextChange}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
             placeholder="Scrivi... (@nome per menzione)"

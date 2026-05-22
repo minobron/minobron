@@ -58,7 +58,7 @@ export default function SettingsScreen() {
       {/* Profilo */}
       <Group label="Profilo">
         <div className="flex items-center gap-4 px-4 py-3"
-          style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '1rem' }}>
+          style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: '1rem' }}>
           {user?.photoURL
             ? <img src={user.photoURL} alt="" className="w-12 h-12 rounded-full" />
             : <div className="w-12 h-12 rounded-full bg-primary-600 flex items-center justify-center text-xl font-bold text-white">
@@ -107,7 +107,7 @@ export default function SettingsScreen() {
                   <input value={wsName} onChange={e => { setWsName(e.target.value); setNameSaved(false) }}
                     onKeyDown={e => e.key === 'Enter' && saveWsName()}
                     className="flex-1 px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                    style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
                   <motion.button whileTap={{ scale: 0.95 }} onClick={saveWsName}
                     disabled={!wsName.trim()}
                     className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white min-w-[5rem] disabled:opacity-40"
@@ -129,7 +129,7 @@ export default function SettingsScreen() {
                   <input value={f} onChange={e => { const n = [...folders]; n[i] = e.target.value; setFolders(n); setFoldersSaved(false) }}
                     placeholder={`Cartella ${i + 1}`}
                     className="flex-1 px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                    style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
                   {folders.length > 1 && (
                     <button onClick={() => { setFolders(folders.filter((_, idx) => idx !== i)); setFoldersSaved(false) }}
                       className="w-9 h-9 flex items-center justify-center rounded-xl text-rose-500 flex-shrink-0"

@@ -19,6 +19,7 @@ export default function CalendarScreen() {
   const [newDesc, setNewDesc]   = useState('')
   const [newDate, setNewDate]   = useState(format(new Date(), 'yyyy-MM-dd'))
   const [newTime, setNewTime]   = useState('09:00')
+  const [search, setSearch]     = useState('')
 
   useEffect(() => {
     if (!wsId) return
@@ -42,7 +43,10 @@ export default function CalendarScreen() {
 
   const days         = eachDayOfInterval({ start: startOfMonth(current), end: endOfMonth(current) })
   const firstDay     = (startOfMonth(current).getDay() + 6) % 7
-  const selectedEvs  = events.filter(e => isSameDay(e.date?.toDate ? e.date.toDate() : new Date(e.date), selected))
+  const searchActive = search.trim().length > 0
+  const selectedEvs  = searchActive
+    ? events.filter(e => e.title?.toLowerCase().includes(search.toLowerCase()))
+    : events.filter(e => isSameDay(e.date?.toDate ? e.date.toDate() : new Date(e.date), selected))
   const hasEvents    = (day) => events.some(e => isSameDay(e.date?.toDate ? e.date.toDate() : new Date(e.date), day))
 
   return (
@@ -68,8 +72,30 @@ export default function CalendarScreen() {
         </button>
       </div>
 
+      {/* Barra di ricerca eventi */}
+      <div className="relative mx-4 mb-3">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Cerca evento…"
+          className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)', color: 'var(--c-text)' }}
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
       {/* Griglia calendario */}
-      <div className="mx-4 rounded-2xl overflow-hidden mb-4" style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="mx-4 rounded-2xl overflow-hidden mb-4" style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
         <div className="grid grid-cols-7" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {['L','M','M','G','V','S','D'].map((d, i) => (
             <div key={i} className="py-2 text-center text-xs font-semibold text-gray-600">{d}</div>
@@ -98,7 +124,9 @@ export default function CalendarScreen() {
       {/* Header giorno + aggiungi */}
       <div className="flex items-center justify-between px-4 mb-3">
         <p className="text-sm font-semibold text-gray-300 capitalize">
-          {format(selected, 'EEEE d MMMM', { locale: it })}
+          {searchActive
+            ? `${selectedEvs.length} risultat${selectedEvs.length === 1 ? 'o' : 'i'} per "${search}"`
+            : format(selected, 'EEEE d MMMM', { locale: it })}
         </p>
         <button onClick={() => { setNewDate(format(selected, 'yyyy-MM-dd')); setNewTitle(''); setNewDesc(''); setShowNew(true) }}
           className="flex items-center gap-1 text-xs font-semibold text-primary-400">
@@ -118,12 +146,13 @@ export default function CalendarScreen() {
           return (
             <motion.div key={ev.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
               className="flex items-center gap-3 px-4 py-3 rounded-xl"
-              style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.06)' }}>
+              style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
               <div className="w-10 h-10 rounded-xl bg-primary-500/15 flex flex-col items-center justify-center flex-shrink-0">
                 <span className="text-[10px] font-bold text-primary-400 leading-none">{format(date, 'HH:mm')}</span>
               </div>
               <div className="flex-1">
                 <p className="font-semibold text-gray-200 text-sm">{ev.title}</p>
+                {searchActive && <p className="text-xs text-primary-400 mt-0.5 capitalize">{format(date, 'EEEE d MMMM', { locale: it })}</p>}
                 {ev.description && <p className="text-xs text-gray-600 mt-0.5">{ev.description}</p>}
               </div>
               <button onClick={() => deleteEvent(ev.id)} className="p-1.5 rounded-lg text-gray-700 hover:text-rose-400 transition-colors">
@@ -146,7 +175,7 @@ export default function CalendarScreen() {
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
               className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
               style={{
-                background: '#1a1a26',
+                background: 'var(--c-surface2)',
                 paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
                 maxHeight: '92dvh',
                 overflowY: 'auto',
@@ -159,20 +188,20 @@ export default function CalendarScreen() {
                 onKeyDown={e => e.key === 'Enter' && createEvent()}
                 placeholder="Titolo evento"
                 className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
 
               <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} rows={2}
                 placeholder="Descrizione (opzionale)"
                 className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
 
               <div className="flex gap-3">
                 <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
                   className="flex-1 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                  style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
                 <input type="time" value={newTime} onChange={e => setNewTime(e.target.value)}
                   className="flex-1 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                  style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
               </div>
 
               <motion.button whileTap={{ scale: 0.97 }} onClick={createEvent} disabled={!newTitle.trim()}

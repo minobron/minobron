@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 
-export function useLongPress(onLongPress, delay = 500) {
+export function useLongPress(onLongPress, onTap, delay = 500) {
   const timerRef = useRef(null)
   const fired    = useRef(false)
 
@@ -16,9 +16,15 @@ export function useLongPress(onLongPress, delay = 500) {
     clearTimeout(timerRef.current)
   }, [])
 
-  const prevent = useCallback((e) => {
-    if (fired.current) e.preventDefault()
-  }, [])
+  const handleClick = useCallback((e) => {
+    if (fired.current) {
+      // Long press già scattato — previeni il click sintetico del browser
+      e.preventDefault()
+    } else {
+      // Tap normale — chiama il callback
+      onTap?.(e)
+    }
+  }, [onTap])
 
   return {
     onTouchStart:  start,
@@ -27,6 +33,6 @@ export function useLongPress(onLongPress, delay = 500) {
     onMouseDown:   start,
     onMouseUp:     cancel,
     onMouseLeave:  cancel,
-    onClick:       prevent,
+    onClick:       handleClick,
   }
 }

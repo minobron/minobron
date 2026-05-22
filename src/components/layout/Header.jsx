@@ -47,7 +47,7 @@ export default function Header({ title, showBack }) {
       <header
         className="fixed top-0 left-0 right-0 z-40 border-b border-white/5"
         style={{
-          background:   'rgba(13,13,20,0.85)',
+          background:   'color-mix(in srgb, var(--c-bg) 85%, transparent)',
           backdropFilter: 'blur(16px)',
           paddingTop:   'var(--sat)',
         }}
@@ -83,9 +83,10 @@ export default function Header({ title, showBack }) {
             )}
           </div>
 
-          {/* Settings shortcut sulle pagine non-home */}
-          {!isHome && !showBack && (
-            <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate('/settings')}
+          {/* Settings shortcut — su tutte le pagine senza back button */}
+          {!showBack && (
+            <motion.button whileTap={{ scale: 0.9 }}
+              onClick={() => location.pathname === '/settings' ? navigate(-1) : navigate('/settings')}
               className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
               <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -118,7 +119,7 @@ export default function Header({ title, showBack }) {
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
               className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-3"
-              style={{ background: '#1a1a26', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
               onClick={e => e.stopPropagation()}>
 
               <div className="w-10 h-1 bg-white/10 rounded-full mx-auto mb-4" />
@@ -144,8 +145,8 @@ export default function Header({ title, showBack }) {
                     autoFocus value={nameVal} onChange={e => setNameVal(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && saveName()}
                     placeholder="Il tuo nome"
-                    className="flex-1 px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)', color: 'var(--c-text)' }}
                   />
                   <motion.button whileTap={{ scale: 0.95 }} onClick={saveName}
                     className="px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold">

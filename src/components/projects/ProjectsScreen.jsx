@@ -23,6 +23,7 @@ export default function ProjectsScreen() {
   const [newColor, setNewColor]   = useState('#6366f1')
   const [newEmoji, setNewEmoji]   = useState('📋')
   const [customEmoji, setCustomEmoji] = useState('')
+  const [search, setSearch]       = useState('')
   const wsId = activeWorkspace?.id
 
   useEffect(() => {
@@ -73,8 +74,36 @@ export default function ProjectsScreen() {
     </div>
   )
 
+  const filtered = projects.filter(p =>
+    p.name?.toLowerCase().includes(search.toLowerCase())
+  )
+
   return (
     <div className="p-4 max-w-lg mx-auto">
+      {/* Barra di ricerca */}
+      {projects.length > 0 && (
+        <div className="relative mb-4">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Cerca progetto…"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)', color: 'var(--c-text)' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
+
       {projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
           <span className="text-5xl">📋</span>
@@ -86,7 +115,11 @@ export default function ProjectsScreen() {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          {projects.map((p, i) => (
+          {filtered.length === 0 && search ? (
+            <div className="col-span-2 text-center py-10 text-sm text-gray-600">
+              Nessun progetto trovato per "{search}"
+            </div>
+          ) : filtered.map((p, i) => (
             <ProjectCard key={p.id} project={p} i={i}
               onClick={() => navigate(`/projects/${p.id}`)}
               onLongPress={() => setContextMenu(p)} />
@@ -110,7 +143,7 @@ export default function ProjectsScreen() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
               className="w-full max-w-lg mx-auto rounded-t-3xl overflow-hidden"
-              style={{ background: '#1a1a26', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
               onClick={e => e.stopPropagation()}>
               <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 <span className="text-2xl">{contextMenu.emoji}</span>
@@ -138,7 +171,7 @@ export default function ProjectsScreen() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
               className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
-              style={{ background: '#1a1a26', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))', maxHeight: '90vh', overflowY: 'auto' }}
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))', maxHeight: '90vh', overflowY: 'auto' }}
               onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
               <h3 className="text-base font-bold text-white">{showNew ? 'Nuovo progetto' : 'Modifica progetto'}</h3>
@@ -147,7 +180,7 @@ export default function ProjectsScreen() {
                 onKeyDown={e => e.key === 'Enter' && (showNew ? createProject() : updateProject())}
                 placeholder="Nome del progetto"
                 className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
 
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Colore</p>
@@ -176,7 +209,7 @@ export default function ProjectsScreen() {
                 <input value={customEmoji} onChange={e => setCustomEmoji(e.target.value)}
                   placeholder="Oppure digita qualsiasi emoji…"
                   className="w-full px-3 py-2 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  style={{ background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }} />
+                  style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
               </div>
 
               <motion.button whileTap={{ scale: 0.97 }}
@@ -194,15 +227,14 @@ export default function ProjectsScreen() {
 }
 
 function ProjectCard({ project, i, onClick, onLongPress }) {
-  const lp    = useLongPress(onLongPress)
+  const lp    = useLongPress(onLongPress, onClick)
   const color = project.color?.startsWith('#') ? project.color : '#6366f1'
   return (
     <motion.button
       initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: i * 0.05 }} whileTap={{ scale: 0.96 }}
-      onClick={onClick}
       className="flex flex-col gap-3 p-4 rounded-2xl text-left select-none"
-      style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.06)' }}
+      style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}
       {...lp}>
       <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
         style={{ backgroundColor: color + '22' }}>

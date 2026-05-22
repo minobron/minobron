@@ -12,9 +12,9 @@ const tabs = [
 export default function BottomNav() {
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/5"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/5"
       style={{
-        background:     'rgba(13,13,20,0.92)',
+        background:     'color-mix(in srgb, var(--c-bg) 92%, transparent)',
         backdropFilter: 'blur(16px)',
         paddingBottom:  'env(safe-area-inset-bottom, 0px)',
       }}

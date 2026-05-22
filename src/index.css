@@ -32,10 +32,43 @@ html, body {
 .pb-safe  { padding-bottom: var(--sab); }
 
 /* ============================================================
-   Base dark theme — applichiamo il dark di default
+   CSS Variables — palette che cambia con il tema
    ============================================================ */
+:root {
+  /* Dark (default) */
+  --c-bg:       #0d0d14;
+  --c-card:     #111118;
+  --c-surface2: #1a1a26;
+  --c-input:    #252534;
+  --c-border:   rgba(255,255,255,0.07);
+  --c-text:     #f1f1f8;
+  --c-muted:    #6b7280;
+}
+
+html.dark {
+  --c-bg:       #0d0d14;
+  --c-card:     #111118;
+  --c-surface2: #1a1a26;
+  --c-input:    #252534;
+  --c-border:   rgba(255,255,255,0.07);
+  --c-text:     #f1f1f8;
+  --c-muted:    #6b7280;
+}
+
+html:not(.dark) {
+  --c-bg:       #f0f0f5;
+  --c-card:     #ffffff;
+  --c-surface2: #e8e8f0;
+  --c-input:    #ededf5;
+  --c-border:   rgba(0,0,0,0.08);
+  --c-text:     #111118;
+  --c-muted:    #6b7280;
+  color-scheme: light;
+}
+
+/* Base dark theme — applichiamo il dark di default */
 html {
-  background-color: #0d0d14;
+  background-color: var(--c-bg);
   color-scheme: dark;
 }
 

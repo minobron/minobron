@@ -7,7 +7,7 @@ export default function AppLayout() {
   const location = useLocation()
 
   return (
-    <div className="bg-[#0d0d14] font-sans" style={{ minHeight: '100dvh' }}>
+    <div className="font-sans" style={{ minHeight: '100dvh', background: 'var(--c-bg)', color: 'var(--c-text)' }}>
       <Header />
       <main
         style={{
