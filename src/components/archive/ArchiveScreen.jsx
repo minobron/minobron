@@ -309,24 +309,15 @@ export default function ArchiveScreen() {
                       className="max-w-full max-h-full object-contain rounded-xl" />
                   )
                 }
-                // PDF: apertura nativa — gli iframe PDF non funzionano su Safari iOS in PWA
+                // PDF: iframe diretto all'URL Cloudinary (funziona su iOS Safari 13+)
                 if (preview.type?.includes('pdf') || preview.name?.match(/\.pdf$/i)) {
                   return (
-                    <div className="flex flex-col items-center gap-5" onClick={e => e.stopPropagation()}>
-                      <span className="text-7xl">📄</span>
-                      <p className="text-sm font-medium text-center px-4" style={{ color: '#e5e7eb' }}>
-                        {preview.name}
-                      </p>
-                      <button
-                        onClick={() => window.open(preview.url, '_blank')}
-                        className="px-8 py-3.5 rounded-2xl text-sm font-semibold"
-                        style={{ background: '#6366f1', color: 'white' }}>
-                        Apri PDF
-                      </button>
-                      <p className="text-xs text-center px-6" style={{ color: '#6b7280' }}>
-                        Si apre nel visualizzatore del dispositivo
-                      </p>
-                    </div>
+                    <iframe
+                      src={preview.url}
+                      title={preview.name}
+                      onClick={e => e.stopPropagation()}
+                      className="w-full h-full rounded-xl border-0"
+                    />
                   )
                 }
                 const iframeUrl = getPreviewUrl(preview)
