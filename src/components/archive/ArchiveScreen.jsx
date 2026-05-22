@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc,
-         serverTimestamp, query, orderBy, getDocs, where } from 'firebase/firestore'
+         serverTimestamp, query, orderBy, getDocs, where, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { uploadToCloudinary } from '../../utils/cloudinary'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useAuth } from '../../context/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
-import { format } from 'date-fns'
+import { format, differenceInDays } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { useLongPress } from '../../hooks/useLongPress'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
 const DEFAULT_FOLDERS = ['Generale', 'Loghi', 'Documenti', 'Foto', 'Altro']
+const TRASH_DAYS = 30  // giorni prima dell'auto-eliminazione
 
 export default function ArchiveScreen() {
-  const { activeWorkspace } = useWorkspace()
+  const { activeWorkspace, isAdmin } = useWorkspace()
   const { user }            = useAuth()
   const wsId                = activeWorkspace?.id
   const fileRef             = useRef(null)
@@ -25,23 +27,31 @@ export default function ArchiveScreen() {
   const [uploading, setUploading] = useState(false)
   const [preview, setPreview]   = useState(null)
 
+  // Vista cestino
+  const [showTrash, setShowTrash] = useState(false)
+  const [trashFiles, setTrashFiles] = useState([])
+
   // Gestione cartelle
   const [folderSheet, setFolderSheet]     = useState(null)
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
-  const [renamingFolder, setRenamingFolder] = useState(null) // {id, name}
+  const [renamingFolder, setRenamingFolder] = useState(null)
 
   // Gestione file
   const [fileSheet, setFileSheet]   = useState(null)
-  const [renamingFile, setRenamingFile] = useState(null) // {id, name}
+  const [renamingFile, setRenamingFile] = useState(null)
 
-  // PDF blob URL (bypassa Content-Disposition: attachment di Cloudinary raw)
+  // Conferme elimina
+  const [confirmDeleteFile, setConfirmDeleteFile]     = useState(null)
+  const [confirmDeleteFolder, setConfirmDeleteFolder] = useState(null)
+  const [confirmEmptyTrash, setConfirmEmptyTrash]     = useState(false)
+
+  // PDF blob URL
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [pdfError, setPdfError]     = useState(false)
 
-  // Fetch PDF come blob quando si apre un'anteprima PDF
-  // (bypassa il Content-Disposition: attachment che Cloudinary imposta sui file raw)
+  // Fetch PDF come blob
   useEffect(() => {
     if (!preview) {
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl)
@@ -68,14 +78,15 @@ export default function ArchiveScreen() {
     return () => { cancelled = true; if (blobUrl) URL.revokeObjectURL(blobUrl) }
   }, [preview?.url])
 
-  // Reset quando si cambia workspace
+  // Reset workspace
   useEffect(() => {
     seededRef.current = false
     setFolder(null)
     setFolders([])
+    setShowTrash(false)
   }, [wsId])
 
-  // Carica cartelle da Firestore, semina defaults se vuoto
+  // Carica cartelle
   useEffect(() => {
     if (!wsId) return
     const q = query(collection(db, `workspaces/${wsId}/folders`), orderBy('order', 'asc'))
@@ -96,9 +107,9 @@ export default function ArchiveScreen() {
     })
   }, [wsId])
 
-  // Carica file della cartella corrente
+  // Carica file cartella corrente
   useEffect(() => {
-    if (!wsId || !folder) return
+    if (!wsId || !folder || showTrash) return
     const q = query(
       collection(db, `workspaces/${wsId}/files`),
       where('folder', '==', folder)
@@ -108,12 +119,34 @@ export default function ArchiveScreen() {
       list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
       setAllFiles(list)
     })
-  }, [wsId, folder])
+  }, [wsId, folder, showTrash])
 
-  // ── Operazioni cartelle ───────────────────────────────────────────────────
+  // Carica cestino + auto-pulizia 30 giorni
+  useEffect(() => {
+    if (!wsId) return
+    const q = query(collection(db, `workspaces/${wsId}/trash`), orderBy('deletedAt', 'desc'))
+    return onSnapshot(q, async snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setTrashFiles(list)
+
+      // Auto-elimina file più vecchi di TRASH_DAYS
+      const now = new Date()
+      const toDelete = list.filter(f => {
+        const deleted = f.deletedAt?.toDate ? f.deletedAt.toDate() : new Date(f.deletedAt)
+        return differenceInDays(now, deleted) >= TRASH_DAYS
+      })
+      if (toDelete.length > 0) {
+        const batch = writeBatch(db)
+        toDelete.forEach(f => batch.delete(doc(db, `workspaces/${wsId}/trash/${f.id}`)))
+        await batch.commit()
+      }
+    })
+  }, [wsId])
+
+  // ── Operazioni cartelle (solo admin) ─────────────────────────────────────
 
   const createFolder = async () => {
-    if (!newFolderName.trim()) return
+    if (!newFolderName.trim() || !isAdmin) return
     const maxOrder = folders.reduce((m, f) => Math.max(m, f.order ?? 0), 0)
     await addDoc(collection(db, `workspaces/${wsId}/folders`), {
       name: newFolderName.trim(), order: maxOrder + 1, createdAt: serverTimestamp()
@@ -123,29 +156,27 @@ export default function ArchiveScreen() {
   }
 
   const saveRenameFolder = async () => {
-    if (!renamingFolder?.name?.trim()) return
+    if (!renamingFolder?.name?.trim() || !isAdmin) return
     const oldName = folderSheet?.name
     const newName = renamingFolder.name.trim()
     if (newName === oldName) { setRenamingFolder(null); setFolderSheet(null); return }
-    // 1. Aggiorna documento cartella
     await updateDoc(doc(db, `workspaces/${wsId}/folders/${renamingFolder.id}`), { name: newName })
-    // 2. Aggiorna tutti i file che appartengono a questa cartella
     const snap = await getDocs(query(
       collection(db, `workspaces/${wsId}/files`), where('folder', '==', oldName)
     ))
     await Promise.all(snap.docs.map(d =>
       updateDoc(doc(db, `workspaces/${wsId}/files/${d.id}`), { folder: newName })
     ))
-    // 3. Aggiorna selezione corrente
     if (folder === oldName) setFolder(newName)
     setRenamingFolder(null)
     setFolderSheet(null)
   }
 
-  const deleteFolder = async (folderId, folderName) => {
+  const doDeleteFolder = async () => {
+    if (!confirmDeleteFolder || !isAdmin) return
+    const { id: folderId, name: folderName } = confirmDeleteFolder
     const remaining = folders.filter(f => f.id !== folderId)
     const fallback  = remaining[0]?.name
-    // Sposta i file nella prima cartella rimasta
     if (fallback) {
       const snap = await getDocs(query(
         collection(db, `workspaces/${wsId}/files`), where('folder', '==', folderName)
@@ -157,6 +188,7 @@ export default function ArchiveScreen() {
     await deleteDoc(doc(db, `workspaces/${wsId}/folders/${folderId}`))
     if (folder === folderName) setFolder(fallback || null)
     setFolderSheet(null)
+    setConfirmDeleteFolder(null)
   }
 
   // ── Operazioni file ───────────────────────────────────────────────────────
@@ -170,16 +202,54 @@ export default function ArchiveScreen() {
         name, url, type, folder, size,
         uploadedBy: user.uid, createdAt: serverTimestamp()
       })
+      // Log attività: file caricato
+      await addDoc(collection(db, `workspaces/${wsId}/activity`), {
+        userId: user.uid,
+        text: `${user.name} ha caricato "${name}" in ${folder}`,
+        createdAt: serverTimestamp()
+      })
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
 
-  const deleteFile = async (id) => {
-    await deleteDoc(doc(db, `workspaces/${wsId}/files/${id}`))
+  // Soft delete: sposta nel cestino invece di eliminare
+  const deleteFile = async (file) => {
+    // Copia nel cestino
+    await addDoc(collection(db, `workspaces/${wsId}/trash`), {
+      ...file,
+      originalFolder: file.folder || folder,
+      deletedAt: serverTimestamp(),
+      deletedBy: user.uid,
+      deletedByName: user.name || user.email,
+    })
+    // Rimuovi dai file normali
+    await deleteDoc(doc(db, `workspaces/${wsId}/files/${file.id}`))
     setPreview(null)
     setFileSheet(null)
+    setConfirmDeleteFile(null)
+  }
+
+  const restoreFile = async (trashFile) => {
+    const { id, deletedAt, deletedBy, deletedByName, originalFolder, ...fileData } = trashFile
+    await addDoc(collection(db, `workspaces/${wsId}/files`), {
+      ...fileData,
+      folder: originalFolder || folders[0]?.name || 'Generale',
+      restoredAt: serverTimestamp(),
+    })
+    await deleteDoc(doc(db, `workspaces/${wsId}/trash/${id}`))
+  }
+
+  const permanentDelete = async (trashFile) => {
+    await deleteDoc(doc(db, `workspaces/${wsId}/trash/${trashFile.id}`))
+  }
+
+  const emptyTrash = async () => {
+    const batch = writeBatch(db)
+    trashFiles.forEach(f => batch.delete(doc(db, `workspaces/${wsId}/trash/${f.id}`)))
+    await batch.commit()
+    setConfirmEmptyTrash(false)
   }
 
   const saveRenameFile = async () => {
@@ -187,7 +257,6 @@ export default function ArchiveScreen() {
     await updateDoc(doc(db, `workspaces/${wsId}/files/${renamingFile.id}`), {
       name: renamingFile.name.trim()
     })
-    // Aggiorna preview se il file rinominato è quello aperto
     if (preview?.id === renamingFile.id) {
       setPreview(p => ({ ...p, name: renamingFile.name.trim() }))
     }
@@ -197,37 +266,27 @@ export default function ArchiveScreen() {
 
   // ── Preview helpers ───────────────────────────────────────────────────────
 
-  // Ritorna l'URL da usare nell'iframe per il tipo di file, o null se non supportato
-  // PDF escluso: viene aperto nativamente con window.open (Safari iOS non supporta iframe PDF)
   const getPreviewUrl = (file) => {
     const enc = encodeURIComponent(file.url)
-    if (file.type?.startsWith('image/')) return null // immagine, non serve iframe
+    if (file.type?.startsWith('image/')) return null
     if (file.type?.includes('word') || file.name?.match(/\.(doc|docx)$/i))
       return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
     if (file.type?.includes('sheet') || file.type?.includes('excel') || file.name?.match(/\.(xls|xlsx)$/i))
       return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
-    return null  // altri formati non supportati in anteprima
+    return null
   }
 
-  // Scarica il file nella cartella Download tramite fetch+blob (funziona cross-origin)
   const downloadFile = async (url, name) => {
     try {
       const res  = await fetch(url)
       const blob = await res.blob()
       const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = name
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(blobUrl)
-    } catch {
-      window.open(url, '_blank')
-    }
+      a.href = blobUrl; a.download = name
+      document.body.appendChild(a); a.click()
+      document.body.removeChild(a); URL.revokeObjectURL(blobUrl)
+    } catch { window.open(url, '_blank') }
   }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
 
   const formatSize = (bytes) => {
     if (!bytes) return ''
@@ -249,62 +308,156 @@ export default function ArchiveScreen() {
     return '📎'
   }
 
+  const daysUntilAutoDelete = (deletedAt) => {
+    if (!deletedAt) return TRASH_DAYS
+    const d = deletedAt.toDate ? deletedAt.toDate() : new Date(deletedAt)
+    return Math.max(0, TRASH_DAYS - differenceInDays(new Date(), d))
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-lg mx-auto pb-4">
 
-      {/* Tab cartelle — sfondo usa var(--c-bg) per rispettare il tema */}
+      {/* Tab cartelle + pulsante cestino */}
       <div className="sticky top-0 z-10 px-4 pt-3 pb-2" style={{ background: 'var(--c-bg)' }}>
         <div className="flex gap-2 overflow-x-auto scrollbar-hide items-center">
-          {folders.map(f => (
+          {!showTrash && folders.map(f => (
             <FolderChip key={f.id} folder={f} active={folder === f.name}
               onTap={() => setFolder(f.name)}
-              onLongPress={() => setFolderSheet(f)} />
+              onLongPress={() => isAdmin && setFolderSheet(f)} />
           ))}
-          {/* Pulsante nuova cartella */}
-          <button onClick={() => { setNewFolderName(''); setShowNewFolder(true) }}
-            className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
-            style={{ background: 'rgba(255,255,255,0.06)', color: '#6b7280' }}>
+          {showTrash && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
+              style={{ background: '#6366f1', color: '#fff' }}>
+              🗑️ Cestino
+            </div>
+          )}
+
+          {/* Nuova cartella — solo admin */}
+          {isAdmin && !showTrash && (
+            <button onClick={() => { setNewFolderName(''); setShowNewFolder(true) }}
+              className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+              style={{ background: 'rgba(255,255,255,0.06)', color: '#6b7280' }}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          )}
+
+          {/* Pulsante Cestino */}
+          <button onClick={() => setShowTrash(s => !s)}
+            className="ml-auto w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 relative"
+            style={{ background: showTrash ? '#6366f1' : 'rgba(255,255,255,0.06)', color: showTrash ? '#fff' : '#6b7280' }}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
+            {trashFiles.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center"
+                style={{ background: '#ef4444', color: 'white' }}>
+                {trashFiles.length > 9 ? '9+' : trashFiles.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
-      <div className="px-4 space-y-4">
-        {/* Pulsante upload */}
-        <input ref={fileRef} type="file" multiple className="hidden"
-          onChange={e => Array.from(e.target.files).forEach(uploadFile)} />
-        <motion.button whileTap={{ scale: 0.97 }} onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-full flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-medium disabled:opacity-50"
-          style={{ border: '2px dashed rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.05)', color: '#818cf8' }}>
-          {uploading
-            ? <><div className="w-4 h-4 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />Caricamento...</>
-            : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>Carica in {folder}</>
-          }
-        </motion.button>
+      {/* ── Vista Cestino ────────────────────────────────────────────────── */}
+      {showTrash ? (
+        <div className="px-4 space-y-3">
+          {trashFiles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <span className="text-4xl opacity-30">🗑️</span>
+              <p className="text-sm text-gray-700">Il cestino è vuoto</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between px-1">
+                <p className="text-xs text-gray-600">
+                  {trashFiles.length} {trashFiles.length === 1 ? 'file' : 'file'} — eliminati automaticamente dopo {TRASH_DAYS} giorni
+                </p>
+                <button onClick={() => setConfirmEmptyTrash(true)}
+                  className="text-xs text-rose-400 font-medium">
+                  Svuota
+                </button>
+              </div>
+              {trashFiles.map((file, i) => {
+                const days = daysUntilAutoDelete(file.deletedAt)
+                return (
+                  <motion.div key={file.id}
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="flex items-center gap-3 p-3 rounded-2xl"
+                    style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'rgba(99,102,241,0.1)' }}>
+                      {file.type?.startsWith('image/')
+                        ? <img src={file.url} className="w-10 h-10 rounded-xl object-cover" alt="" />
+                        : <span className="text-xl">{getFileIcon(file.type)}</span>
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" style={{ color: 'var(--c-text)' }}>{file.name}</p>
+                      <p className="text-[10px] text-gray-600 mt-0.5">
+                        Eliminato da {file.deletedByName || '—'} · {days}g rimasti
+                      </p>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button onClick={() => restoreFile(file)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold text-primary-400"
+                        style={{ background: 'rgba(99,102,241,0.12)' }}>
+                        Ripristina
+                      </button>
+                      <button onClick={() => permanentDelete(file)}
+                        className="w-8 h-8 flex items-center justify-center rounded-xl text-rose-400"
+                        style={{ background: 'rgba(239,68,68,0.08)' }}>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </>
+          )}
+        </div>
+      ) : (
+        // ── Vista normale ────────────────────────────────────────────────
+        <div className="px-4 space-y-4">
+          {/* Pulsante upload */}
+          <input ref={fileRef} type="file" multiple className="hidden"
+            onChange={e => Array.from(e.target.files).forEach(uploadFile)} />
+          <motion.button whileTap={{ scale: 0.97 }} onClick={() => fileRef.current?.click()} disabled={uploading}
+            className="w-full flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-medium disabled:opacity-50"
+            style={{ border: '2px dashed rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.05)', color: '#818cf8' }}>
+            {uploading
+              ? <><div className="w-4 h-4 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />Caricamento...</>
+              : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>Carica in {folder}</>
+            }
+          </motion.button>
 
-        {/* Griglia file */}
-        {allFiles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <span className="text-4xl opacity-30">📁</span>
-            <p className="text-sm text-gray-700">Nessun file in {folder}</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {allFiles.map((file, i) => (
-              <FileCard key={file.id} file={file} i={i}
-                formatSize={formatSize} getFileIcon={getFileIcon}
-                onTap={() => setPreview(file)}
-                onLongPress={() => setFileSheet(file)} />
-            ))}
-          </div>
-        )}
-      </div>
+          {/* Griglia file */}
+          {allFiles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <span className="text-4xl opacity-30">📁</span>
+              <p className="text-sm text-gray-700">Nessun file in {folder}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {allFiles.map((file, i) => (
+                <FileCard key={file.id} file={file} i={i}
+                  formatSize={formatSize} getFileIcon={getFileIcon}
+                  onTap={() => setPreview(file)}
+                  onLongPress={() => setFileSheet(file)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Preview file ─────────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -313,7 +466,6 @@ export default function ArchiveScreen() {
             className="fixed inset-0 z-50 flex flex-col" style={{ background: '#000' }}
             onClick={() => setPreview(null)}>
 
-            {/* Top bar — usa style esplicito per non essere sovrascritto in light mode */}
             <div className="flex items-center gap-3 px-4 flex-shrink-0"
               style={{
                 paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
@@ -332,7 +484,6 @@ export default function ArchiveScreen() {
               <p className="text-sm font-medium truncate flex-1" style={{ color: 'white' }}>{preview.name}</p>
             </div>
 
-            {/* Contenuto — clic sullo sfondo nero chiude, clic sul contenuto no */}
             <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
               {(() => {
                 if (preview.type?.startsWith('image/')) {
@@ -342,7 +493,6 @@ export default function ArchiveScreen() {
                       className="max-w-full max-h-full object-contain rounded-xl" />
                   )
                 }
-                // PDF: blob URL con MIME type corretto (bypassa Content-Disposition: attachment)
                 if (preview.type?.includes('pdf') || preview.name?.match(/\.pdf$/i)) {
                   if (pdfLoading) return (
                     <div className="flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
@@ -354,9 +504,6 @@ export default function ArchiveScreen() {
                     <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
                       <span className="text-6xl">📄</span>
                       <p className="text-sm text-center px-4" style={{ color: '#9ca3af' }}>{preview.name}</p>
-                      <p className="text-xs text-center px-6" style={{ color: '#6b7280' }}>
-                        Anteprima non disponibile
-                      </p>
                       <a href={preview.url} target="_blank" rel="noreferrer"
                         className="px-6 py-3 rounded-2xl text-sm font-semibold"
                         style={{ background: '#6366f1', color: 'white' }}>
@@ -379,7 +526,6 @@ export default function ArchiveScreen() {
                       sandbox="allow-scripts allow-same-origin allow-popups" />
                   )
                 }
-                // Formato non supportato in anteprima
                 return (
                   <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
                     <span className="text-6xl">{getFileIcon(preview.type)}</span>
@@ -392,7 +538,7 @@ export default function ArchiveScreen() {
               })()}
             </div>
 
-            {/* Azioni: Salva + Elimina */}
+            {/* Azioni: Salva + Cestino */}
             <div className="flex gap-3 px-4 flex-shrink-0"
               style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
               onClick={e => e.stopPropagation()}>
@@ -401,7 +547,7 @@ export default function ArchiveScreen() {
                 style={{ background: '#6366f1', color: 'white' }}>
                 ⬇️ Salva
               </button>
-              <button onClick={() => deleteFile(preview.id)}
+              <button onClick={() => setConfirmDeleteFile(preview)}
                 className="px-4 py-3 rounded-2xl text-sm font-semibold text-rose-400"
                 style={{ background: 'rgba(239,68,68,0.1)' }}>
                 🗑️
@@ -411,9 +557,9 @@ export default function ArchiveScreen() {
         )}
       </AnimatePresence>
 
-      {/* ── Sheet azioni cartella (long press) ───────────────────────────── */}
+      {/* ── Sheet azioni cartella (long press, solo admin) ────────────────── */}
       <AnimatePresence>
-        {folderSheet && (
+        {folderSheet && isAdmin && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
             onClick={() => { setFolderSheet(null); setRenamingFolder(null) }}>
@@ -457,7 +603,7 @@ export default function ArchiveScreen() {
                     ✏️  Rinomina
                   </button>
                   {folders.length > 1 && (
-                    <button onClick={() => deleteFolder(folderSheet.id, folderSheet.name)}
+                    <button onClick={() => { setConfirmDeleteFolder(folderSheet); setFolderSheet(null) }}
                       className="w-full text-left py-3 text-sm font-medium text-rose-400">
                       🗑️  Elimina cartella
                     </button>
@@ -510,7 +656,7 @@ export default function ArchiveScreen() {
                   <div className="py-1" style={{ borderBottom: '1px solid var(--c-border)' }}>
                     <p className="font-semibold text-white text-sm pb-3 truncate">{fileSheet.name}</p>
                   </div>
-                  <button onClick={() => setPreview(fileSheet)}
+                  <button onClick={() => { setPreview(fileSheet); setFileSheet(null) }}
                     className="w-full text-left py-3 text-sm font-medium text-gray-200">
                     👁️  Apri anteprima
                   </button>
@@ -519,9 +665,9 @@ export default function ArchiveScreen() {
                     className="w-full text-left py-3 text-sm font-medium text-gray-200">
                     ✏️  Rinomina
                   </button>
-                  <button onClick={() => deleteFile(fileSheet.id)}
+                  <button onClick={() => { setConfirmDeleteFile(fileSheet); setFileSheet(null) }}
                     className="w-full text-left py-3 text-sm font-medium text-rose-400">
-                    🗑️  Elimina file
+                    🗑️  Sposta nel cestino
                   </button>
                 </>
               )}
@@ -532,7 +678,7 @@ export default function ArchiveScreen() {
 
       {/* ── Modal nuova cartella ──────────────────────────────────────────── */}
       <AnimatePresence>
-        {showNewFolder && (
+        {showNewFolder && isAdmin && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
             onClick={e => e.target === e.currentTarget && setShowNewFolder(false)}>
@@ -560,6 +706,34 @@ export default function ArchiveScreen() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Dialoghi di conferma ─────────────────────────────────────────── */}
+      <ConfirmDialog
+        open={!!confirmDeleteFile}
+        title={`Spostare nel cestino "${confirmDeleteFile?.name}"?`}
+        message={`Il file sarà recuperabile dal cestino per ${TRASH_DAYS} giorni, poi verrà eliminato definitivamente.`}
+        confirmLabel="Sposta nel cestino"
+        onConfirm={() => deleteFile(confirmDeleteFile)}
+        onCancel={() => setConfirmDeleteFile(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeleteFolder}
+        title={`Eliminare la cartella "${confirmDeleteFolder?.name}"?`}
+        message="I file al suo interno saranno spostati nella prima cartella disponibile."
+        confirmLabel="Elimina cartella"
+        onConfirm={doDeleteFolder}
+        onCancel={() => setConfirmDeleteFolder(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmEmptyTrash}
+        title="Svuotare il cestino?"
+        message={`${trashFiles.length} file saranno eliminati definitivamente e non potranno essere recuperati.`}
+        confirmLabel="Svuota cestino"
+        onConfirm={emptyTrash}
+        onCancel={() => setConfirmEmptyTrash(false)}
+      />
     </div>
   )
 }

@@ -8,6 +8,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { useLongPress } from '../../hooks/useLongPress'
+import ConfirmDialog from '../shared/ConfirmDialog'
+import { sendTaskAssignedEmail } from '../../utils/emailjs'
 
 const PRIORITY = {
   high:   { label: 'Alta',   dot: 'bg-rose-500',    badge: 'bg-rose-500/15 text-rose-400' },
@@ -18,7 +20,7 @@ const PRIORITY = {
 export default function ProjectDetail() {
   const { projectId } = useParams()
   const navigate      = useNavigate()
-  const { activeWorkspace, members } = useWorkspace()
+  const { activeWorkspace, members, isAdmin } = useWorkspace()
   const { user }      = useAuth()
   const wsId          = activeWorkspace?.id
 
@@ -30,6 +32,7 @@ export default function ProjectDetail() {
   const [newAssignees, setNewAssignees] = useState([])
   const [newDue, setNewDue]           = useState('')
   const [contextMenu, setContextMenu] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null) // task to delete
   const [showDone, setShowDone]       = useState(false)
 
   useEffect(() => {
@@ -51,8 +54,9 @@ export default function ProjectDetail() {
   const createTask = async () => {
     if (!newTitle.trim()) return
     const assignees = newAssignees.length > 0 ? newAssignees : [user.uid]
+    const title = newTitle.trim()
     await addDoc(collection(db, `workspaces/${wsId}/tasks`), {
-      title: newTitle.trim(), projectId, priority: newPriority,
+      title, projectId, priority: newPriority,
       assignees, status: 'todo',
       dueDate: newDue ? new Date(newDue) : null,
       createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
@@ -61,9 +65,25 @@ export default function ProjectDetail() {
     await updateDoc(doc(db, `workspaces/${wsId}/projects/${projectId}`), { taskCount: increment(1) })
     await addDoc(collection(db, `workspaces/${wsId}/activity`), {
       userId: user.uid,
-      text: `${user.name} ha creato il task "${newTitle.trim()}"`,
+      text: `${user.name} ha creato il task "${title}"`,
       createdAt: serverTimestamp()
     })
+    // Invia email a chi è stato assegnato (escluso il creatore stesso)
+    const projectName = project?.name || ''
+    assignees
+      .filter(uid => uid !== user.uid)
+      .forEach(uid => {
+        const member = members.find(m => m.id === uid)
+        if (member?.email) {
+          sendTaskAssignedEmail({
+            toEmail:     member.email,
+            toName:      member.name || member.email,
+            fromName:    user.name || user.email,
+            taskTitle:   title,
+            projectName,
+          })
+        }
+      })
     setNewTitle(''); setNewAssignees([]); setNewDue('')
     setShowNew(false)
   }
@@ -77,7 +97,12 @@ export default function ProjectDetail() {
     await deleteDoc(doc(db, `workspaces/${wsId}/tasks/${taskId}`))
     await updateDoc(doc(db, `workspaces/${wsId}/projects/${projectId}`), { taskCount: increment(-1) })
     setContextMenu(null)
+    setConfirmDelete(null)
   }
+
+  // Può eliminare un task: il creatore o l'admin
+  const canDeleteTask = (task) =>
+    isAdmin || task.createdBy === user?.uid
 
   const getMember = uid => members.find(m => m.id === uid)
 
@@ -188,10 +213,10 @@ export default function ProjectDetail() {
               </div>
               {[
                 { label: contextMenu.status === 'done' ? '↩️  Riporta a Da fare' : '✅  Segna Completato',
-                  action: () => { markDone(contextMenu); setContextMenu(null) } },
-                { label: '✏️  Apri e modifica', action: () => { navigate(`/projects/task/${contextMenu.id}`); setContextMenu(null) } },
-                { label: '🗑️  Elimina task', action: () => deleteTask(contextMenu.id), danger: true },
-              ].map(item => (
+                  action: () => { markDone(contextMenu); setContextMenu(null) }, show: true },
+                { label: '✏️  Apri e modifica', action: () => { navigate(`/projects/task/${contextMenu.id}`); setContextMenu(null) }, show: true },
+                { label: '🗑️  Elimina task', action: () => { setConfirmDelete(contextMenu); setContextMenu(null) }, danger: true, show: canDeleteTask(contextMenu) },
+              ].filter(i => i.show).map(item => (
                 <button key={item.label} onClick={item.action}
                   className={`w-full text-left px-5 py-4 text-sm font-medium ${item.danger ? 'text-rose-400' : 'text-gray-200'}`}>
                   {item.label}
@@ -201,6 +226,16 @@ export default function ProjectDetail() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Dialogo conferma elimina task */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Eliminare "${confirmDelete?.title}"?`}
+        message="Il task verrà eliminato definitivamente."
+        confirmLabel="Elimina task"
+        onConfirm={() => deleteTask(confirmDelete.id)}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       {/* Modal nuovo task */}
       <AnimatePresence>

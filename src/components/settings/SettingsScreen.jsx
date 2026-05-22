@@ -1,31 +1,38 @@
 import { useState, useEffect } from 'react'
-import { doc, updateDoc } from 'firebase/firestore'
-import { db } from '../../firebase/config'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useAuth } from '../../context/AuthContext'
-import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
-const DEFAULT_FOLDERS = ['Generale', 'Loghi', 'Documenti', 'Foto', 'Altro']
+const PRESET_COLORS = ['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#64748b']
 
 export default function SettingsScreen() {
-  const { activeWorkspace } = useWorkspace()
-  const { user, logout }    = useAuth()
-  const navigate            = useNavigate()
-  const wsId    = activeWorkspace?.id
-  const isAdmin = activeWorkspace?.adminIds?.includes(user?.uid)
+  const { activeWorkspace, members, isAdmin, updateWorkspaceMeta, removeMember } = useWorkspace()
+  const { user, logout } = useAuth()
+  const navigate         = useNavigate()
 
-  const [wsName, setWsName]     = useState(activeWorkspace?.name || '')
+  const wsId = activeWorkspace?.id
+
+  // Workspace name
+  const [wsName, setWsName]       = useState(activeWorkspace?.name || '')
   const [nameSaved, setNameSaved] = useState(false)
-  const [theme, setTheme]       = useState(() => localStorage.getItem('theme') || 'auto')
-  const [folders, setFolders]   = useState(
-    activeWorkspace?.folders?.length ? activeWorkspace.folders : [...DEFAULT_FOLDERS]
-  )
-  const [foldersSaved, setFoldersSaved] = useState(false)
+
+  // Workspace emoji + color
+  const [wsEmoji, setWsEmoji]   = useState(activeWorkspace?.emoji || '')
+  const [wsColor, setWsColor]   = useState(activeWorkspace?.color || '#6366f1')
+  const [metaSaved, setMetaSaved] = useState(false)
+
+  // Theme
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'auto')
+
+  // Remove member confirmation
+  const [confirmRemove, setConfirmRemove] = useState(null) // { id, name }
 
   useEffect(() => {
     setWsName(activeWorkspace?.name || '')
-    setFolders(activeWorkspace?.folders?.length ? activeWorkspace.folders : [...DEFAULT_FOLDERS])
+    setWsEmoji(activeWorkspace?.emoji || '')
+    setWsColor(activeWorkspace?.color || '#6366f1')
   }, [activeWorkspace])
 
   useEffect(() => {
@@ -41,15 +48,25 @@ export default function SettingsScreen() {
 
   const saveWsName = async () => {
     if (!wsName.trim() || !wsId) return
-    await updateDoc(doc(db, `workspaces/${wsId}`), { name: wsName.trim() })
-    setNameSaved(true); setTimeout(() => setNameSaved(false), 2000)
+    await updateWorkspaceMeta({ name: wsName.trim() })
+    setNameSaved(true)
+    setTimeout(() => setNameSaved(false), 2000)
   }
 
-  const saveFolders = async () => {
-    const valid = folders.map(f => f.trim()).filter(Boolean)
-    if (!valid.length || !wsId) return
-    await updateDoc(doc(db, `workspaces/${wsId}`), { folders: valid })
-    setFoldersSaved(true); setTimeout(() => setFoldersSaved(false), 2000)
+  const saveWsMeta = async () => {
+    if (!wsId) return
+    await updateWorkspaceMeta({
+      emoji: wsEmoji.trim(),
+      color: wsColor,
+    })
+    setMetaSaved(true)
+    setTimeout(() => setMetaSaved(false), 2000)
+  }
+
+  const handleRemoveMember = async () => {
+    if (!confirmRemove) return
+    await removeMember(confirmRemove.id)
+    setConfirmRemove(null)
   }
 
   return (
@@ -66,14 +83,20 @@ export default function SettingsScreen() {
               </div>
           }
           <div className="min-w-0">
-            <p className="font-bold text-white">{user?.name}</p>
+            <p className="font-bold" style={{ color: 'var(--c-text)' }}>{user?.name}</p>
             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+            {isAdmin && (
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md mt-0.5 inline-block"
+                style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
+                Admin
+              </span>
+            )}
           </div>
         </div>
         <p className="text-xs text-gray-700 px-1">Per cambiare nome tocca la tua foto nell'header.</p>
       </Group>
 
-      {/* Tema */}
+      {/* Aspetto */}
       <Group label="Aspetto">
         <div className="flex gap-2">
           {[
@@ -101,6 +124,7 @@ export default function SettingsScreen() {
         <>
           <Group label="Workspace">
             <div className="space-y-3">
+              {/* Nome */}
               <label className="block">
                 <p className="text-xs text-gray-600 mb-1.5 uppercase tracking-wide font-semibold">Nome</p>
                 <div className="flex gap-2">
@@ -116,69 +140,127 @@ export default function SettingsScreen() {
                   </motion.button>
                 </div>
               </label>
+
+              {/* Emoji */}
+              <label className="block">
+                <p className="text-xs text-gray-600 mb-1.5 uppercase tracking-wide font-semibold">Emoji</p>
+                <input
+                  value={wsEmoji}
+                  onChange={e => { setWsEmoji(e.target.value); setMetaSaved(false) }}
+                  placeholder="🏢"
+                  maxLength={4}
+                  className="w-24 px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 text-center text-xl"
+                  style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }}
+                />
+              </label>
+
+              {/* Colore */}
+              <div>
+                <p className="text-xs text-gray-600 mb-1.5 uppercase tracking-wide font-semibold">Colore</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {PRESET_COLORS.map(c => (
+                    <button key={c} onClick={() => { setWsColor(c); setMetaSaved(false) }}
+                      className="w-8 h-8 rounded-full transition-transform active:scale-95"
+                      style={{ backgroundColor: c, outline: wsColor === c ? `2px solid ${c}` : 'none', outlineOffset: '2px' }} />
+                  ))}
+                  <input type="color" value={wsColor} onChange={e => { setWsColor(e.target.value); setMetaSaved(false) }}
+                    className="w-8 h-8 rounded-full cursor-pointer border-0" />
+                </div>
+              </div>
+
+              <motion.button whileTap={{ scale: 0.97 }} onClick={saveWsMeta}
+                className="w-full py-2.5 text-sm font-semibold text-white rounded-xl"
+                style={{ background: '#6366f1' }}>
+                {metaSaved ? '✓ Salvato' : 'Salva emoji e colore'}
+              </motion.button>
+
               <p className="text-xs text-gray-700 px-1">
                 ID: <span className="font-mono text-gray-600 select-all">{wsId}</span>
               </p>
             </div>
           </Group>
-
-          <Group label="Cartelle Archivio">
-            <div className="space-y-2">
-              {folders.map((f, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input value={f} onChange={e => { const n = [...folders]; n[i] = e.target.value; setFolders(n); setFoldersSaved(false) }}
-                    placeholder={`Cartella ${i + 1}`}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
-                  {folders.length > 1 && (
-                    <button onClick={() => { setFolders(folders.filter((_, idx) => idx !== i)); setFoldersSaved(false) }}
-                      className="w-9 h-9 flex items-center justify-center rounded-xl text-rose-500 flex-shrink-0"
-                      style={{ background: 'rgba(239,68,68,0.08)' }}>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              ))}
-              {folders.length < 8 && (
-                <button onClick={() => { setFolders([...folders, '']); setFoldersSaved(false) }}
-                  className="w-full py-2.5 text-sm font-medium text-primary-400 rounded-xl"
-                  style={{ border: '2px dashed rgba(99,102,241,0.25)', background: 'rgba(99,102,241,0.04)' }}>
-                  + Aggiungi cartella
-                </button>
-              )}
-              <motion.button whileTap={{ scale: 0.97 }} onClick={saveFolders}
-                className="w-full py-2.5 text-sm font-semibold text-white rounded-xl"
-                style={{ background: '#6366f1' }}>
-                {foldersSaved ? '✓ Salvate' : 'Salva cartelle'}
-              </motion.button>
-            </div>
-          </Group>
         </>
       )}
 
-      {!isAdmin && (
-        <div className="px-4 py-3 rounded-2xl text-sm text-amber-400"
-          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
-          🔒 Solo gli admin possono modificare le impostazioni del workspace.
+      {/* Membri — visibile a tutti */}
+      <Group label="Membri">
+        <div className="space-y-2">
+          {members.length === 0 ? (
+            <p className="text-sm text-gray-600 px-1">Nessun membro trovato.</p>
+          ) : members.map(m => {
+            const isSelf  = m.id === user?.uid
+            const mIsAdmin = activeWorkspace?.adminIds?.includes(m.id)
+            return (
+              <div key={m.id}
+                className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+                style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
+                {m.photoURL
+                  ? <img src={m.photoURL} alt="" className="w-9 h-9 rounded-full flex-shrink-0" />
+                  : <div className="w-9 h-9 rounded-full bg-primary-700 flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+                      {m.name?.charAt(0) || '?'}
+                    </div>
+                }
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-sm font-semibold" style={{ color: 'var(--c-text)' }}>{m.name}</p>
+                    {isSelf && (
+                      <span className="text-[10px] text-gray-600 font-medium">(tu)</span>
+                    )}
+                    {mIsAdmin && (
+                      <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md"
+                        style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
+                        Admin
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{m.email}</p>
+                </div>
+                {/* Rimuovi membro — solo admin, non se stesso */}
+                {isAdmin && !isSelf && (
+                  <motion.button whileTap={{ scale: 0.9 }}
+                    onClick={() => setConfirmRemove({ id: m.id, name: m.name })}
+                    className="w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0 text-rose-400"
+                    style={{ background: 'rgba(239,68,68,0.08)' }}>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                    </svg>
+                  </motion.button>
+                )}
+              </div>
+            )
+          })}
         </div>
-      )}
+        {!isAdmin && members.length > 0 && (
+          <p className="text-xs text-gray-700 px-1">Solo gli admin possono rimuovere i membri.</p>
+        )}
+      </Group>
 
-      {/* Logout */}
+      {/* Account */}
       <Group label="Account">
         <motion.button whileTap={{ scale: 0.97 }}
           onClick={async () => { await logout(); navigate('/login') }}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-rose-400"
           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           Esci dall'account
         </motion.button>
       </Group>
 
-      <p className="text-center text-xs text-gray-800 pb-2">Minobron v3.0</p>
+      <p className="text-center text-xs text-gray-800 pb-2">Minobron v4.0</p>
+
+      {/* Dialogo conferma rimozione membro */}
+      <ConfirmDialog
+        open={!!confirmRemove}
+        title={`Rimuovere ${confirmRemove?.name}?`}
+        message="Questa persona perderà l'accesso al workspace. Potrà essere riaggiunta in seguito."
+        confirmLabel="Rimuovi"
+        onConfirm={handleRemoveMember}
+        onCancel={() => setConfirmRemove(null)}
+      />
     </div>
   )
 }

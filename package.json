@@ -15,7 +15,8 @@
     "firebase": "^10.7.0",
     "framer-motion": "^10.16.16",
     "date-fns": "^2.30.0",
-    "lucide-react": "^0.294.0"
+    "lucide-react": "^0.294.0",
+    "@emailjs/browser": "^4.3.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",

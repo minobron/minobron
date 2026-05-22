@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from './AuthContext'
 
@@ -47,8 +47,27 @@ export function WorkspaceProvider({ children }) {
 
   const isAdmin = activeWorkspace?.adminIds?.includes(user?.uid)
 
+  // Rimuove un membro dal workspace (solo admin, non può rimuovere se stesso)
+  const removeMember = async (memberId) => {
+    if (!isAdmin || !activeWorkspace || memberId === user?.uid) return
+    await updateDoc(doc(db, 'workspaces', activeWorkspace.id), {
+      memberIds: activeWorkspace.memberIds.filter(id => id !== memberId),
+      adminIds:  (activeWorkspace.adminIds || []).filter(id => id !== memberId),
+    })
+  }
+
+  // Aggiorna emoji e colore del workspace (solo admin)
+  const updateWorkspaceMeta = async ({ emoji, color, name }) => {
+    if (!isAdmin || !activeWorkspace) return
+    const updates = {}
+    if (emoji !== undefined) updates.emoji = emoji
+    if (color !== undefined) updates.color = color
+    if (name  !== undefined) updates.name  = name
+    await updateDoc(doc(db, 'workspaces', activeWorkspace.id), updates)
+  }
+
   return (
-    <WorkspaceContext.Provider value={{ workspaces, activeWorkspace, switchWorkspace, members, isAdmin, loading }}>
+    <WorkspaceContext.Provider value={{ workspaces, activeWorkspace, switchWorkspace, members, isAdmin, loading, removeMember, updateWorkspaceMeta }}>
       {children}
     </WorkspaceContext.Provider>
   )

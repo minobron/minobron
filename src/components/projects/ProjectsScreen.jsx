@@ -6,12 +6,13 @@ import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLongPress } from '../../hooks/useLongPress'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
 const EMOJIS = ['📋','💡','🤝','📦','💰','📸','✉️','🎯','📣','🗂️','🔧','⭐','🚀','💎','🌟','🎨','📝','🔑','💼','🌈','⚡','🎭','🏆','💬','📊','🛒','🧩','🔥','💫','🎪']
 const PRESET_COLORS = ['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#64748b']
 
 export default function ProjectsScreen() {
-  const { activeWorkspace } = useWorkspace()
+  const { activeWorkspace, isAdmin } = useWorkspace()
   const { user }            = useAuth()
   const navigate            = useNavigate()
   const [projects, setProjects]   = useState([])
@@ -19,6 +20,7 @@ export default function ProjectsScreen() {
   const [showNew, setShowNew]     = useState(false)
   const [showEdit, setShowEdit]   = useState(null)
   const [contextMenu, setContextMenu] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null) // project to delete
   const [newName, setNewName]     = useState('')
   const [newColor, setNewColor]   = useState('#6366f1')
   const [newEmoji, setNewEmoji]   = useState('📋')
@@ -61,7 +63,12 @@ export default function ProjectsScreen() {
     // Poi cancella il progetto
     await deleteDoc(doc(db, `workspaces/${wsId}/projects/${id}`))
     setContextMenu(null)
+    setConfirmDelete(null)
   }
+
+  // Può eliminare un progetto: il creatore o l'admin
+  const canDeleteProject = (project) =>
+    isAdmin || project.createdBy === user?.uid
 
   const openEdit = (project) => {
     setNewName(project.name)
@@ -156,9 +163,9 @@ export default function ProjectsScreen() {
                 <p className="font-bold text-white">{contextMenu.name}</p>
               </div>
               {[
-                { label: '✏️  Modifica', action: () => openEdit(contextMenu) },
-                { label: '🗑️  Elimina',  action: () => deleteProject(contextMenu.id), danger: true },
-              ].map(item => (
+                { label: '✏️  Modifica', action: () => openEdit(contextMenu), show: true },
+                { label: '🗑️  Elimina',  action: () => { setConfirmDelete(contextMenu); setContextMenu(null) }, danger: true, show: canDeleteProject(contextMenu) },
+              ].filter(i => i.show).map(item => (
                 <button key={item.label} onClick={item.action}
                   className={`w-full text-left px-5 py-4 text-sm font-medium ${item.danger ? 'text-rose-400' : 'text-gray-200'}`}>
                   {item.label}
@@ -168,6 +175,16 @@ export default function ProjectsScreen() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Dialogo conferma elimina progetto */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Eliminare "${confirmDelete?.name}"?`}
+        message="Saranno eliminati anche tutti i task al suo interno. L'azione non può essere annullata."
+        confirmLabel="Elimina progetto"
+        onConfirm={() => deleteProject(confirmDelete.id)}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       <AnimatePresence>
         {(showNew || showEdit) && (

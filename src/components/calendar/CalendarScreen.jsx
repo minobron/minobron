@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, addMonths, subMonths } from 'date-fns'
 import { it } from 'date-fns/locale'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
 const USER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -25,7 +26,8 @@ export default function CalendarScreen() {
   const [newTime, setNewTime]     = useState('09:00')
   const [newLink, setNewLink]     = useState('')
   const [search, setSearch]       = useState('')
-  const [selectedEvent, setSelectedEvent] = useState(null) // dettaglio evento
+  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null) // evento da eliminare
 
   useEffect(() => {
     if (!wsId) return
@@ -259,7 +261,7 @@ export default function CalendarScreen() {
                 </div>
 
                 <motion.button whileTap={{ scale: 0.97 }}
-                  onClick={() => deleteEvent(selectedEvent.id)}
+                  onClick={() => setConfirmDelete(selectedEvent)}
                   className="w-full py-3 rounded-xl text-sm font-semibold text-rose-400"
                   style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
                   🗑️ Elimina evento
@@ -269,6 +271,16 @@ export default function CalendarScreen() {
           )
         })()}
       </AnimatePresence>
+
+      {/* Dialogo conferma elimina evento */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Eliminare "${confirmDelete?.title}"?`}
+        message="L'evento verrà eliminato per tutti i membri del workspace."
+        confirmLabel="Elimina evento"
+        onConfirm={async () => { await deleteEvent(confirmDelete.id); setConfirmDelete(null) }}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       {/* Modal nuovo evento */}
       <AnimatePresence>

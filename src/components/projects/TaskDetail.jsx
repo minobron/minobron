@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
 const PRIORITY = {
   high:   { label: 'Alta',   dot: '#f43f5e', badge: 'rgba(244,63,94,0.15)',  text: '#fb7185' },
@@ -26,7 +27,7 @@ const INPUT_STYLE = { background: 'var(--c-input)', border: '1px solid var(--c-b
 export default function TaskDetail() {
   const { taskId }   = useParams()
   const navigate     = useNavigate()
-  const { activeWorkspace, members } = useWorkspace()
+  const { activeWorkspace, members, isAdmin } = useWorkspace()
   const { user }     = useAuth()
   const wsId         = activeWorkspace?.id
   const fileInputRef = useRef()
@@ -38,6 +39,7 @@ export default function TaskDetail() {
   const [commentSheet, setCommentSheet]   = useState(null)   // commento selezionato
   const [editingComment, setEditingComment] = useState(null) // {id, text}
   const [attachPreview, setAttachPreview]   = useState(null) // allegato selezionato
+  const [confirmDelete, setConfirmDelete]   = useState(false)
 
   useEffect(() => {
     if (!wsId || !taskId) return
@@ -322,16 +324,28 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* Elimina task */}
-      <motion.button whileTap={{ scale: 0.97 }} onClick={deleteTask}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-rose-400"
-        style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-        Elimina task
-      </motion.button>
+      {/* Elimina task — solo creatore o admin */}
+      {(isAdmin || task.createdBy === user?.uid) && (
+        <motion.button whileTap={{ scale: 0.97 }} onClick={() => setConfirmDelete(true)}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-rose-400"
+          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Elimina task
+        </motion.button>
+      )}
+
+      {/* Dialogo conferma elimina task */}
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Eliminare "${task?.title}"?`}
+        message="Il task verrà eliminato definitivamente."
+        confirmLabel="Elimina task"
+        onConfirm={deleteTask}
+        onCancel={() => setConfirmDelete(false)}
+      />
 
       {/* Sheet azioni commento */}
       <AnimatePresence>
