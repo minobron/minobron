@@ -162,6 +162,41 @@ export default function ArchiveScreen() {
     setFileSheet(null)
   }
 
+  // ── Preview helpers ───────────────────────────────────────────────────────
+
+  // Ritorna l'URL da usare nell'iframe per il tipo di file, o null se non supportato
+  const getPreviewUrl = (file) => {
+    const enc = encodeURIComponent(file.url)
+    if (file.type?.startsWith('image/')) return null // immagine, non serve iframe
+    if (file.type?.includes('pdf') || file.name?.match(/\.pdf$/i))
+      return `https://docs.google.com/viewer?url=${enc}&embedded=true`
+    if (file.type?.includes('word') || file.name?.match(/\.(doc|docx)$/i))
+      return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
+    if (file.type?.includes('sheet') || file.type?.includes('excel') || file.name?.match(/\.(xls|xlsx)$/i))
+      return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
+    if (file.type?.startsWith('text/html') || file.name?.match(/\.html?$/i))
+      return file.url
+    return null
+  }
+
+  // Scarica il file nella cartella Download tramite fetch+blob (funziona cross-origin)
+  const downloadFile = async (url, name) => {
+    try {
+      const res  = await fetch(url)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch {
+      window.open(url, '_blank')
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const formatSize = (bytes) => {
@@ -269,22 +304,37 @@ export default function ArchiveScreen() {
 
             {/* Contenuto — clic sullo sfondo nero chiude, clic sul contenuto no */}
             <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
-              {preview.type?.startsWith('image/')
-                ? <img src={preview.url} alt={preview.name}
-                    onClick={e => e.stopPropagation()}
-                    className="max-w-full max-h-full object-contain rounded-xl" />
-                : preview.type?.includes('pdf')
-                  ? <iframe src={preview.url} title={preview.name}
+              {(() => {
+                if (preview.type?.startsWith('image/')) {
+                  return (
+                    <img src={preview.url} alt={preview.name}
                       onClick={e => e.stopPropagation()}
-                      className="w-full h-full rounded-xl border-0" />
-                  : <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
-                      <span className="text-6xl">{getFileIcon(preview.type)}</span>
-                      <p className="text-sm text-center" style={{ color: '#9ca3af' }}>{preview.name}</p>
-                    </div>
-              }
+                      className="max-w-full max-h-full object-contain rounded-xl" />
+                  )
+                }
+                const iframeUrl = getPreviewUrl(preview)
+                if (iframeUrl) {
+                  return (
+                    <iframe src={iframeUrl} title={preview.name}
+                      onClick={e => e.stopPropagation()}
+                      className="w-full h-full rounded-xl border-0"
+                      sandbox="allow-scripts allow-same-origin allow-popups" />
+                  )
+                }
+                // Formato non supportato in anteprima
+                return (
+                  <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
+                    <span className="text-6xl">{getFileIcon(preview.type)}</span>
+                    <p className="text-sm text-center" style={{ color: '#9ca3af' }}>{preview.name}</p>
+                    <p className="text-xs text-center" style={{ color: '#6b7280' }}>
+                      Formato non visualizzabile — usa Apri o Scarica
+                    </p>
+                  </div>
+                )
+              })()}
             </div>
 
-            {/* Azioni: solo Apri + Elimina (Scarica rimosso) */}
+            {/* Azioni: Apri + Scarica + Elimina */}
             <div className="flex gap-3 px-4 flex-shrink-0"
               style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
               onClick={e => e.stopPropagation()}>
@@ -293,6 +343,11 @@ export default function ArchiveScreen() {
                 style={{ background: '#6366f1', color: 'white' }}>
                 🔗 Apri
               </a>
+              <button onClick={() => downloadFile(preview.url, preview.name)}
+                className="flex-1 py-3 rounded-2xl text-sm font-semibold"
+                style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }}>
+                ⬇️ Scarica
+              </button>
               <button onClick={() => deleteFile(preview.id)}
                 className="px-4 py-3 rounded-2xl text-sm font-semibold text-rose-400"
                 style={{ background: 'rgba(239,68,68,0.1)' }}>

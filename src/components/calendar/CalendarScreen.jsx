@@ -23,6 +23,7 @@ export default function CalendarScreen() {
   const [newDesc, setNewDesc]     = useState('')
   const [newDate, setNewDate]     = useState(format(new Date(), 'yyyy-MM-dd'))
   const [newTime, setNewTime]     = useState('09:00')
+  const [newLink, setNewLink]     = useState('')
   const [search, setSearch]       = useState('')
   const [selectedEvent, setSelectedEvent] = useState(null) // dettaglio evento
 
@@ -35,13 +36,17 @@ export default function CalendarScreen() {
   const createEvent = async () => {
     if (!newTitle.trim()) return
     const date = new Date(`${newDate}T${newTime}:00`)
+    // Normalizza il link: aggiunge https:// se manca
+    const rawLink = newLink.trim()
+    const link = rawLink && !rawLink.match(/^https?:\/\//i) ? `https://${rawLink}` : rawLink
     await addDoc(collection(db, `workspaces/${wsId}/events`), {
       title: newTitle.trim(), description: newDesc.trim(),
+      link: link || null,
       date, timezone: USER_TZ,
       createdBy: user.uid, createdByName: user.name || user.email,
       createdAt: serverTimestamp()
     })
-    setNewTitle(''); setNewDesc(''); setShowNew(false)
+    setNewTitle(''); setNewDesc(''); setNewLink(''); setShowNew(false)
   }
 
   const deleteEvent = async (id) => {
@@ -155,7 +160,7 @@ export default function CalendarScreen() {
             : format(selected, 'EEEE d MMMM', { locale: it })}
         </p>
         {!searchActive && (
-          <button onClick={() => { setNewDate(format(selected, 'yyyy-MM-dd')); setNewTitle(''); setNewDesc(''); setNewTime('09:00'); setShowNew(true) }}
+          <button onClick={() => { setNewDate(format(selected, 'yyyy-MM-dd')); setNewTitle(''); setNewDesc(''); setNewLink(''); setNewTime('09:00'); setShowNew(true) }}
             className="flex items-center gap-1 text-xs font-semibold text-primary-400">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -183,6 +188,7 @@ export default function CalendarScreen() {
                 <p className="font-semibold text-gray-200 text-sm">{ev.title}</p>
                 {searchActive && <p className="text-xs text-primary-400 mt-0.5 capitalize">{format(date, 'EEEE d MMMM', { locale: it })}</p>}
                 {ev.description && <p className="text-xs text-gray-600 mt-0.5">{ev.description}</p>}
+                {ev.link && <p className="text-xs text-primary-400 mt-0.5">🔗 Link</p>}
                 {ev.createdByName && <p className="text-[10px] text-gray-700 mt-0.5">Creato da {ev.createdByName}</p>}
               </div>
               <svg className="w-4 h-4 text-gray-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,6 +237,19 @@ export default function CalendarScreen() {
                       )}
                     </span>
                   </div>
+                  {selectedEvent.link && (
+                    <div className="flex items-center gap-3 py-2" style={{ borderBottom: '1px solid var(--c-border)' }}>
+                      <span className="text-sm text-gray-500 w-16 flex-shrink-0">Link</span>
+                      <a href={selectedEvent.link} target="_blank" rel="noopener noreferrer"
+                        className="text-sm text-primary-400 truncate flex-1 flex items-center gap-1.5"
+                        onClick={e => e.stopPropagation()}>
+                        <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        {selectedEvent.link.replace(/^https?:\/\//, '')}
+                      </a>
+                    </div>
+                  )}
                   {selectedEvent.createdByName && (
                     <div className="flex items-center gap-3 py-2">
                       <span className="text-sm text-gray-500 w-16 flex-shrink-0">Creato da</span>
@@ -294,6 +313,13 @@ export default function CalendarScreen() {
                   className="px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
               </div>
+
+              <input value={newLink} onChange={e => setNewLink(e.target.value)}
+                placeholder="Link (es. meet.google.com/…) — opzionale"
+                autoComplete="off" autoCorrect="off" autoCapitalize="none"
+                inputMode="url"
+                className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
 
               <motion.button whileTap={{ scale: 0.97 }} onClick={createEvent} disabled={!newTitle.trim()}
                 className="w-full py-3 bg-primary-600 text-white font-semibold rounded-xl text-sm disabled:opacity-40">
