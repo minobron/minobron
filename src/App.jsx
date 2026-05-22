@@ -41,9 +41,7 @@ function AppRoutes() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 rounded-3xl bg-primary-500 flex items-center justify-center shadow-lg">
-            <span className="text-white text-2xl font-bold">M</span>
-          </div>
+          <img src="/icons/icon-192.png" className="w-16 h-16 rounded-3xl shadow-lg" alt="Mino" />
           <div className="w-6 h-6 border-2 border-primary-300 border-t-primary-500 rounded-full animate-spin" />
         </div>
       </div>
