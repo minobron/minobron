@@ -35,6 +35,39 @@ export default function ArchiveScreen() {
   const [fileSheet, setFileSheet]   = useState(null)
   const [renamingFile, setRenamingFile] = useState(null) // {id, name}
 
+  // PDF blob URL (bypassa Content-Disposition: attachment di Cloudinary raw)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError]     = useState(false)
+
+  // Fetch PDF come blob quando si apre un'anteprima PDF
+  // (bypassa il Content-Disposition: attachment che Cloudinary imposta sui file raw)
+  useEffect(() => {
+    if (!preview) {
+      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl)
+      setPdfBlobUrl(null); setPdfLoading(false); setPdfError(false)
+      return
+    }
+    const isPdf = preview.type?.includes('pdf') || preview.name?.match(/\.pdf$/i)
+    if (!isPdf) return
+
+    let blobUrl = null
+    let cancelled = false
+    setPdfLoading(true); setPdfError(false); setPdfBlobUrl(null)
+
+    fetch(preview.url)
+      .then(r => r.blob())
+      .then(blob => {
+        if (cancelled) return
+        blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+        setPdfBlobUrl(blobUrl)
+        setPdfLoading(false)
+      })
+      .catch(() => { if (!cancelled) { setPdfError(true); setPdfLoading(false) } })
+
+    return () => { cancelled = true; if (blobUrl) URL.revokeObjectURL(blobUrl) }
+  }, [preview?.url])
+
   // Reset quando si cambia workspace
   useEffect(() => {
     seededRef.current = false
@@ -309,15 +342,32 @@ export default function ArchiveScreen() {
                       className="max-w-full max-h-full object-contain rounded-xl" />
                   )
                 }
-                // PDF: iframe diretto all'URL Cloudinary (funziona su iOS Safari 13+)
+                // PDF: blob URL con MIME type corretto (bypassa Content-Disposition: attachment)
                 if (preview.type?.includes('pdf') || preview.name?.match(/\.pdf$/i)) {
+                  if (pdfLoading) return (
+                    <div className="flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
+                      <div className="w-8 h-8 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-xs" style={{ color: '#6b7280' }}>Caricamento PDF…</p>
+                    </div>
+                  )
+                  if (pdfError || !pdfBlobUrl) return (
+                    <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
+                      <span className="text-6xl">📄</span>
+                      <p className="text-sm text-center px-4" style={{ color: '#9ca3af' }}>{preview.name}</p>
+                      <p className="text-xs text-center px-6" style={{ color: '#6b7280' }}>
+                        Anteprima non disponibile
+                      </p>
+                      <a href={preview.url} target="_blank" rel="noreferrer"
+                        className="px-6 py-3 rounded-2xl text-sm font-semibold"
+                        style={{ background: '#6366f1', color: 'white' }}>
+                        Apri PDF
+                      </a>
+                    </div>
+                  )
                   return (
-                    <iframe
-                      src={preview.url}
-                      title={preview.name}
+                    <iframe src={pdfBlobUrl} title={preview.name}
                       onClick={e => e.stopPropagation()}
-                      className="w-full h-full rounded-xl border-0"
-                    />
+                      className="w-full h-full rounded-xl border-0" />
                   )
                 }
                 const iframeUrl = getPreviewUrl(preview)
