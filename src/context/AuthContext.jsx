@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
-import { doc, setDoc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, googleProvider, db } from '../firebase/config'
 
 const AuthContext = createContext(null)
@@ -18,14 +18,24 @@ export function AuthProvider({ children }) {
       if (firebaseUser) {
         const ref = doc(db, 'users', firebaseUser.uid)
 
-        // Crea il documento utente se non esiste
-        await setDoc(ref, {
-          uid:       firebaseUser.uid,
-          name:      firebaseUser.displayName,
-          email:     firebaseUser.email,
-          photoURL:  firebaseUser.photoURL,
-          createdAt: serverTimestamp()
-        }, { merge: true })
+        // Primo accesso: crea il documento con il nome Google
+        // Accessi successivi: aggiorna solo email e foto, NON il nome (potrebbe essere custom)
+        const snap = await getDoc(ref)
+        if (!snap.exists()) {
+          await setDoc(ref, {
+            uid:       firebaseUser.uid,
+            name:      firebaseUser.displayName,
+            email:     firebaseUser.email,
+            photoURL:  firebaseUser.photoURL,
+            createdAt: serverTimestamp()
+          })
+        } else {
+          await setDoc(ref, {
+            uid:      firebaseUser.uid,
+            email:    firebaseUser.email,
+            photoURL: firebaseUser.photoURL,
+          }, { merge: true })
+        }
 
         // Listener in tempo reale: se il nome cambia su Firestore, si aggiorna subito
         unsubUser = onSnapshot(ref, (snap) => {

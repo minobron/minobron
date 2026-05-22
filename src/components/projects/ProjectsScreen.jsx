@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, orderBy, query } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, getDocs, serverTimestamp, orderBy, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useAuth } from '../../context/AuthContext'
@@ -53,6 +53,12 @@ export default function ProjectsScreen() {
   }
 
   const deleteProject = async (id) => {
+    // Cancella prima tutti i task del progetto
+    const tasksSnap = await getDocs(
+      query(collection(db, `workspaces/${wsId}/tasks`), where('projectId', '==', id))
+    )
+    await Promise.all(tasksSnap.docs.map(d => deleteDoc(doc(db, `workspaces/${wsId}/tasks/${d.id}`))))
+    // Poi cancella il progetto
     await deleteDoc(doc(db, `workspaces/${wsId}/projects/${id}`))
     setContextMenu(null)
   }

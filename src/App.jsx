@@ -9,7 +9,6 @@ import HomeScreen from './components/home/HomeScreen'
 import ProjectsScreen from './components/projects/ProjectsScreen'
 import ProjectDetail from './components/projects/ProjectDetail'
 import TaskDetail from './components/projects/TaskDetail'
-import ChatScreen from './components/chat/ChatScreen'
 import CalendarScreen from './components/calendar/CalendarScreen'
 import ArchiveScreen from './components/archive/ArchiveScreen'
 import SettingsScreen from './components/settings/SettingsScreen'
@@ -66,7 +65,6 @@ function AppRoutes() {
           <Route path="projects"               element={<ProjectsScreen />} />
           <Route path="projects/:projectId"    element={<ProjectDetail />} />
           <Route path="projects/task/:taskId"  element={<TaskDetail />} />
-          <Route path="chat"                   element={<ChatScreen />} />
           <Route path="calendar"               element={<CalendarScreen />} />
           <Route path="archive"                element={<ArchiveScreen />} />
           <Route path="settings"               element={<SettingsScreen />} />

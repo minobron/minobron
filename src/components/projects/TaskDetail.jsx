@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, onSnapshot, updateDoc, addDoc, collection, serverTimestamp, arrayUnion } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, addDoc, deleteDoc, collection, serverTimestamp, arrayUnion, increment } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { uploadToCloudinary } from '../../utils/cloudinary'
 import { useWorkspace } from '../../context/WorkspaceContext'
@@ -21,8 +21,8 @@ const STATUS = [
   { id: 'done',       label: 'Fatto'    },
 ]
 
-const CARD = { background: '#111118', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '1rem' }
-const INPUT_STYLE = { background: '#252534', border: '1px solid rgba(255,255,255,0.08)' }
+const CARD = { background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: '1rem' }
+const INPUT_STYLE = { background: 'var(--c-input)', border: '1px solid var(--c-border)' }
 
 export default function TaskDetail() {
   const { taskId }   = useParams()
@@ -82,6 +82,15 @@ export default function TaskDetail() {
       const { url, name, type } = await uploadToCloudinary(file)
       await update({ attachments: arrayUnion({ name, url, type, uploadedBy: user.uid }) })
     } finally { setUploading(false) }
+  }
+
+  const deleteTask = async () => {
+    if (!task) return
+    await deleteDoc(doc(db, `workspaces/${wsId}/tasks/${taskId}`))
+    if (task.projectId) {
+      await updateDoc(doc(db, `workspaces/${wsId}/projects/${task.projectId}`), { taskCount: increment(-1) })
+    }
+    navigate(-1)
   }
 
   const getMember = uid => members.find(m => m.id === uid)
@@ -248,6 +257,7 @@ export default function TaskDetail() {
           <input value={newSubtask} onChange={e => setNewSubtask(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addSubtask()}
             placeholder="Aggiungi subtask..."
+            autoComplete="off" autoCorrect="on" autoCapitalize="sentences"
             className="flex-1 px-3 py-2 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
             style={INPUT_STYLE} />
           <button onClick={addSubtask}
@@ -324,6 +334,7 @@ export default function TaskDetail() {
           <input value={newComment} onChange={e => setNewComment(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addComment()}
             placeholder="Scrivi un commento..."
+            autoComplete="off" autoCorrect="on" autoCapitalize="sentences"
             className="flex-1 px-3 py-2.5 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
             style={INPUT_STYLE} />
           <motion.button whileTap={{ scale: 0.9 }} onClick={addComment}
@@ -335,6 +346,17 @@ export default function TaskDetail() {
           </motion.button>
         </div>
       </div>
+
+      {/* Elimina task */}
+      <motion.button whileTap={{ scale: 0.97 }} onClick={deleteTask}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-rose-400"
+        style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+        Elimina task
+      </motion.button>
     </div>
   )
 }

@@ -34,7 +34,7 @@ export default function CalendarScreen() {
 
   const createEvent = async () => {
     if (!newTitle.trim()) return
-    const date = new Date(`${newDate}T${newTime}`)
+    const date = new Date(`${newDate}T${newTime}:00`)
     await addDoc(collection(db, `workspaces/${wsId}/events`), {
       title: newTitle.trim(), description: newDesc.trim(),
       date, timezone: USER_TZ,
@@ -155,7 +155,7 @@ export default function CalendarScreen() {
             : format(selected, 'EEEE d MMMM', { locale: it })}
         </p>
         {!searchActive && (
-          <button onClick={() => { setNewDate(format(selected, 'yyyy-MM-dd')); setNewTitle(''); setNewDesc(''); setShowNew(true) }}
+          <button onClick={() => { setNewDate(format(selected, 'yyyy-MM-dd')); setNewTitle(''); setNewDesc(''); setNewTime('09:00'); setShowNew(true) }}
             className="flex items-center gap-1 text-xs font-semibold text-primary-400">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -291,7 +291,7 @@ export default function CalendarScreen() {
                   className="flex-1 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
                 <input type="time" value={newTime} onChange={e => setNewTime(e.target.value)}
-                  className="flex-1 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                   style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
               </div>
 
