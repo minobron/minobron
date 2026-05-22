@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, query, where } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc,
+         serverTimestamp, query, orderBy, getDocs, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { uploadToCloudinary } from '../../utils/cloudinary'
 import { useWorkspace } from '../../context/WorkspaceContext'
@@ -7,6 +8,7 @@ import { useAuth } from '../../context/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
+import { useLongPress } from '../../hooks/useLongPress'
 
 const DEFAULT_FOLDERS = ['Generale', 'Loghi', 'Documenti', 'Foto', 'Altro']
 
@@ -15,26 +17,116 @@ export default function ArchiveScreen() {
   const { user }            = useAuth()
   const wsId                = activeWorkspace?.id
   const fileRef             = useRef(null)
-  const folders             = activeWorkspace?.folders?.length ? activeWorkspace.folders : DEFAULT_FOLDERS
+  const seededRef           = useRef(false)
 
-  const [allFiles, setAllFiles]   = useState([])
-  const [folder, setFolder]       = useState(folders[0] || 'Generale')
+  const [folders, setFolders]   = useState([])
+  const [folder, setFolder]     = useState(null)
+  const [allFiles, setAllFiles] = useState([])
   const [uploading, setUploading] = useState(false)
-  const [preview, setPreview]     = useState(null)
+  const [preview, setPreview]   = useState(null)
 
+  // Gestione cartelle
+  const [folderSheet, setFolderSheet]     = useState(null)
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [renamingFolder, setRenamingFolder] = useState(null) // {id, name}
+
+  // Gestione file
+  const [fileSheet, setFileSheet]   = useState(null)
+  const [renamingFile, setRenamingFile] = useState(null) // {id, name}
+
+  // Reset quando si cambia workspace
   useEffect(() => {
-    setFolder(folders[0] || 'Generale')
-  }, [wsId]) // eslint-disable-line
+    seededRef.current = false
+    setFolder(null)
+    setFolders([])
+  }, [wsId])
 
+  // Carica cartelle da Firestore, semina defaults se vuoto
   useEffect(() => {
     if (!wsId) return
-    const q = query(collection(db, `workspaces/${wsId}/files`), where('folder', '==', folder))
+    const q = query(collection(db, `workspaces/${wsId}/folders`), orderBy('order', 'asc'))
+    return onSnapshot(q, snap => {
+      if (snap.empty && !seededRef.current) {
+        seededRef.current = true
+        DEFAULT_FOLDERS.forEach((name, i) =>
+          addDoc(collection(db, `workspaces/${wsId}/folders`), {
+            name, order: i, createdAt: serverTimestamp()
+          })
+        )
+      } else if (!snap.empty) {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.order ?? 99) - (b.order ?? 99))
+        setFolders(list)
+        setFolder(f => f || list[0]?.name)
+      }
+    })
+  }, [wsId])
+
+  // Carica file della cartella corrente
+  useEffect(() => {
+    if (!wsId || !folder) return
+    const q = query(
+      collection(db, `workspaces/${wsId}/files`),
+      where('folder', '==', folder)
+    )
     return onSnapshot(q, snap => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
       setAllFiles(list)
     })
   }, [wsId, folder])
+
+  // ── Operazioni cartelle ───────────────────────────────────────────────────
+
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return
+    const maxOrder = folders.reduce((m, f) => Math.max(m, f.order ?? 0), 0)
+    await addDoc(collection(db, `workspaces/${wsId}/folders`), {
+      name: newFolderName.trim(), order: maxOrder + 1, createdAt: serverTimestamp()
+    })
+    setNewFolderName('')
+    setShowNewFolder(false)
+  }
+
+  const saveRenameFolder = async () => {
+    if (!renamingFolder?.name?.trim()) return
+    const oldName = folderSheet?.name
+    const newName = renamingFolder.name.trim()
+    if (newName === oldName) { setRenamingFolder(null); setFolderSheet(null); return }
+    // 1. Aggiorna documento cartella
+    await updateDoc(doc(db, `workspaces/${wsId}/folders/${renamingFolder.id}`), { name: newName })
+    // 2. Aggiorna tutti i file che appartengono a questa cartella
+    const snap = await getDocs(query(
+      collection(db, `workspaces/${wsId}/files`), where('folder', '==', oldName)
+    ))
+    await Promise.all(snap.docs.map(d =>
+      updateDoc(doc(db, `workspaces/${wsId}/files/${d.id}`), { folder: newName })
+    ))
+    // 3. Aggiorna selezione corrente
+    if (folder === oldName) setFolder(newName)
+    setRenamingFolder(null)
+    setFolderSheet(null)
+  }
+
+  const deleteFolder = async (folderId, folderName) => {
+    const remaining = folders.filter(f => f.id !== folderId)
+    const fallback  = remaining[0]?.name
+    // Sposta i file nella prima cartella rimasta
+    if (fallback) {
+      const snap = await getDocs(query(
+        collection(db, `workspaces/${wsId}/files`), where('folder', '==', folderName)
+      ))
+      await Promise.all(snap.docs.map(d =>
+        updateDoc(doc(db, `workspaces/${wsId}/files/${d.id}`), { folder: fallback })
+      ))
+    }
+    await deleteDoc(doc(db, `workspaces/${wsId}/folders/${folderId}`))
+    if (folder === folderName) setFolder(fallback || null)
+    setFolderSheet(null)
+  }
+
+  // ── Operazioni file ───────────────────────────────────────────────────────
 
   const uploadFile = async (file) => {
     if (!file) return
@@ -54,7 +146,23 @@ export default function ArchiveScreen() {
   const deleteFile = async (id) => {
     await deleteDoc(doc(db, `workspaces/${wsId}/files/${id}`))
     setPreview(null)
+    setFileSheet(null)
   }
+
+  const saveRenameFile = async () => {
+    if (!renamingFile?.name?.trim()) return
+    await updateDoc(doc(db, `workspaces/${wsId}/files/${renamingFile.id}`), {
+      name: renamingFile.name.trim()
+    })
+    // Aggiorna preview se il file rinominato è quello aperto
+    if (preview?.id === renamingFile.id) {
+      setPreview(p => ({ ...p, name: renamingFile.name.trim() }))
+    }
+    setRenamingFile(null)
+    setFileSheet(null)
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   const formatSize = (bytes) => {
     if (!bytes) return ''
@@ -76,21 +184,27 @@ export default function ArchiveScreen() {
     return '📎'
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-lg mx-auto pb-4">
-      {/* Tab cartelle */}
-      <div className="sticky top-0 z-10 px-4 pt-3 pb-2" style={{ background: '#0d0d14' }}>
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+
+      {/* Tab cartelle — sfondo usa var(--c-bg) per rispettare il tema */}
+      <div className="sticky top-0 z-10 px-4 pt-3 pb-2" style={{ background: 'var(--c-bg)' }}>
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide items-center">
           {folders.map(f => (
-            <button key={f} onClick={() => setFolder(f)}
-              className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors"
-              style={{
-                background: folder === f ? '#6366f1' : 'rgba(255,255,255,0.06)',
-                color:      folder === f ? '#fff'    : '#6b7280',
-              }}>
-              {f}
-            </button>
+            <FolderChip key={f.id} folder={f} active={folder === f.name}
+              onTap={() => setFolder(f.name)}
+              onLongPress={() => setFolderSheet(f)} />
           ))}
+          {/* Pulsante nuova cartella */}
+          <button onClick={() => { setNewFolderName(''); setShowNewFolder(true) }}
+            className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+            style={{ background: 'rgba(255,255,255,0.06)', color: '#6b7280' }}>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -99,11 +213,13 @@ export default function ArchiveScreen() {
         <input ref={fileRef} type="file" multiple className="hidden"
           onChange={e => Array.from(e.target.files).forEach(uploadFile)} />
         <motion.button whileTap={{ scale: 0.97 }} onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-full flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-medium disabled:opacity-50 transition-colors"
+          className="w-full flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-medium disabled:opacity-50"
           style={{ border: '2px dashed rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.05)', color: '#818cf8' }}>
           {uploading
             ? <><div className="w-4 h-4 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />Caricamento...</>
-            : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>Carica in {folder}</>
+            : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>Carica in {folder}</>
           }
         </motion.button>
 
@@ -116,84 +232,65 @@ export default function ArchiveScreen() {
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {allFiles.map((file, i) => (
-              <motion.button key={file.id}
-                initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.03 }} whileTap={{ scale: 0.97 }}
-                onClick={() => setPreview(file)}
-                className="rounded-2xl overflow-hidden text-left"
-                style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.06)' }}>
-                {file.type?.startsWith('image/') ? (
-                  <div className="aspect-square bg-gray-900 overflow-hidden">
-                    <img src={file.url} alt={file.name} className="w-full h-full object-cover" loading="lazy" />
-                  </div>
-                ) : (
-                  <div className="aspect-square flex flex-col items-center justify-center gap-2"
-                    style={{ background: 'rgba(99,102,241,0.06)' }}>
-                    <span className="text-3xl">{getFileIcon(file.type)}</span>
-                    <span className="text-xs font-bold text-primary-400 uppercase">{file.name?.split('.').pop()}</span>
-                  </div>
-                )}
-                <div className="p-2.5">
-                  <p className="text-xs font-medium text-gray-300 truncate">{file.name}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    {formatSize(file.size)}
-                    {file.createdAt && ` · ${format(file.createdAt.toDate(), 'd MMM', { locale: it })}`}
-                  </p>
-                </div>
-              </motion.button>
+              <FileCard key={file.id} file={file} i={i}
+                formatSize={formatSize} getFileIcon={getFileIcon}
+                onTap={() => setPreview(file)}
+                onLongPress={() => setFileSheet(file)} />
             ))}
           </div>
         )}
       </div>
 
-      {/* Preview / dettaglio file */}
+      {/* ── Preview file ─────────────────────────────────────────────────── */}
       <AnimatePresence>
         {preview && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex flex-col"
-            style={{ background: '#000' }}
+            className="fixed inset-0 z-50 flex flex-col" style={{ background: '#000' }}
             onClick={() => setPreview(null)}>
 
-            {/* Top bar */}
-            <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
-              style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(16px)' }}
+            {/* Top bar — usa style esplicito per non essere sovrascritto in light mode */}
+            <div className="flex items-center gap-3 px-4 flex-shrink-0"
+              style={{
+                paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+                paddingBottom: '0.75rem',
+                background: 'rgba(0,0,0,0.85)',
+                backdropFilter: 'blur(16px)',
+              }}
               onClick={e => e.stopPropagation()}>
               <button onClick={() => setPreview(null)}
                 className="w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0"
-                style={{ background: 'rgba(255,255,255,0.1)' }}>
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                style={{ background: 'rgba(255,255,255,0.15)' }}>
+                <svg className="w-4 h-4" style={{ color: 'white' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <p className="font-medium text-white text-sm truncate flex-1">{preview.name}</p>
+              <p className="text-sm font-medium truncate flex-1" style={{ color: 'white' }}>{preview.name}</p>
             </div>
 
-            {/* Contenuto */}
-            <div className="flex-1 flex items-center justify-center p-4 overflow-hidden"
-              onClick={e => e.stopPropagation()}>
+            {/* Contenuto — clic sullo sfondo nero chiude, clic sul contenuto no */}
+            <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
               {preview.type?.startsWith('image/')
-                ? <img src={preview.url} alt={preview.name} className="max-w-full max-h-full object-contain rounded-xl" />
-                : <div className="flex flex-col items-center gap-4">
-                    <span className="text-6xl">{getFileIcon(preview.type)}</span>
-                    <p className="text-gray-400 text-sm text-center">{preview.name}</p>
-                  </div>
+                ? <img src={preview.url} alt={preview.name}
+                    onClick={e => e.stopPropagation()}
+                    className="max-w-full max-h-full object-contain rounded-xl" />
+                : preview.type?.includes('pdf')
+                  ? <iframe src={preview.url} title={preview.name}
+                      onClick={e => e.stopPropagation()}
+                      className="w-full h-full rounded-xl border-0" />
+                  : <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
+                      <span className="text-6xl">{getFileIcon(preview.type)}</span>
+                      <p className="text-sm text-center" style={{ color: '#9ca3af' }}>{preview.name}</p>
+                    </div>
               }
             </div>
 
-            {/* Azioni: scarica + apri + elimina */}
-            <div className="flex gap-3 px-4 pb-4 flex-shrink-0"
+            {/* Azioni: solo Apri + Elimina (Scarica rimosso) */}
+            <div className="flex gap-3 px-4 flex-shrink-0"
               style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
               onClick={e => e.stopPropagation()}>
-              <a href={preview.url} download={preview.name}
-                className="flex-1 py-3 rounded-2xl text-center text-sm font-semibold text-white"
-                style={{ background: '#6366f1' }}
-                onClick={e => e.stopPropagation()}>
-                ⬇️ Scarica
-              </a>
               <a href={preview.url} target="_blank" rel="noopener noreferrer"
-                className="flex-1 py-3 rounded-2xl text-center text-sm font-semibold text-gray-300"
-                style={{ background: 'rgba(255,255,255,0.1)' }}
-                onClick={e => e.stopPropagation()}>
+                className="flex-1 py-3 rounded-2xl text-center text-sm font-semibold"
+                style={{ background: '#6366f1', color: 'white' }}>
                 🔗 Apri
               </a>
               <button onClick={() => deleteFile(preview.id)}
@@ -205,6 +302,204 @@ export default function ArchiveScreen() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Sheet azioni cartella (long press) ───────────────────────────── */}
+      <AnimatePresence>
+        {folderSheet && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={() => { setFolderSheet(null); setRenamingFolder(null) }}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
+
+              {renamingFolder ? (
+                <>
+                  <h3 className="text-sm font-bold text-white">Rinomina cartella</h3>
+                  <input autoFocus
+                    value={renamingFolder.name}
+                    onChange={e => setRenamingFolder(r => ({ ...r, name: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && saveRenameFolder()}
+                    className="w-full px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
+                  <div className="flex gap-3">
+                    <button onClick={() => setRenamingFolder(null)}
+                      className="flex-1 py-3 rounded-xl text-sm font-semibold text-gray-400"
+                      style={{ background: 'rgba(255,255,255,0.06)' }}>
+                      Annulla
+                    </button>
+                    <motion.button whileTap={{ scale: 0.97 }} onClick={saveRenameFolder}
+                      disabled={!renamingFolder.name.trim()}
+                      className="flex-1 py-3 bg-primary-600 text-white font-semibold rounded-xl text-sm disabled:opacity-40">
+                      Salva
+                    </motion.button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="px-1 py-1" style={{ borderBottom: '1px solid var(--c-border)' }}>
+                    <p className="font-semibold text-white text-sm pb-3">{folderSheet.name}</p>
+                  </div>
+                  <button
+                    onClick={() => setRenamingFolder({ id: folderSheet.id, name: folderSheet.name })}
+                    className="w-full text-left py-3 text-sm font-medium text-gray-200">
+                    ✏️  Rinomina
+                  </button>
+                  {folders.length > 1 && (
+                    <button onClick={() => deleteFolder(folderSheet.id, folderSheet.name)}
+                      className="w-full text-left py-3 text-sm font-medium text-rose-400">
+                      🗑️  Elimina cartella
+                    </button>
+                  )}
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Sheet azioni file (long press) ───────────────────────────────── */}
+      <AnimatePresence>
+        {fileSheet && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={() => { setFileSheet(null); setRenamingFile(null) }}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
+
+              {renamingFile ? (
+                <>
+                  <h3 className="text-sm font-bold text-white">Rinomina file</h3>
+                  <input autoFocus
+                    value={renamingFile.name}
+                    onChange={e => setRenamingFile(r => ({ ...r, name: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && saveRenameFile()}
+                    autoComplete="off" autoCorrect="off"
+                    className="w-full px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
+                  <div className="flex gap-3">
+                    <button onClick={() => setRenamingFile(null)}
+                      className="flex-1 py-3 rounded-xl text-sm font-semibold text-gray-400"
+                      style={{ background: 'rgba(255,255,255,0.06)' }}>
+                      Annulla
+                    </button>
+                    <motion.button whileTap={{ scale: 0.97 }} onClick={saveRenameFile}
+                      disabled={!renamingFile.name.trim()}
+                      className="flex-1 py-3 bg-primary-600 text-white font-semibold rounded-xl text-sm disabled:opacity-40">
+                      Salva
+                    </motion.button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="py-1" style={{ borderBottom: '1px solid var(--c-border)' }}>
+                    <p className="font-semibold text-white text-sm pb-3 truncate">{fileSheet.name}</p>
+                  </div>
+                  <button onClick={() => setPreview(fileSheet)}
+                    className="w-full text-left py-3 text-sm font-medium text-gray-200">
+                    👁️  Apri anteprima
+                  </button>
+                  <button
+                    onClick={() => setRenamingFile({ id: fileSheet.id, name: fileSheet.name })}
+                    className="w-full text-left py-3 text-sm font-medium text-gray-200">
+                    ✏️  Rinomina
+                  </button>
+                  <button onClick={() => deleteFile(fileSheet.id)}
+                    className="w-full text-left py-3 text-sm font-medium text-rose-400">
+                    🗑️  Elimina file
+                  </button>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Modal nuova cartella ──────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showNewFolder && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={e => e.target === e.currentTarget && setShowNewFolder(false)}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
+              <h3 className="text-base font-bold text-white">Nuova cartella</h3>
+              <input autoFocus
+                value={newFolderName}
+                onChange={e => setNewFolderName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && createFolder()}
+                placeholder="Nome cartella"
+                autoComplete="off" autoCorrect="on" autoCapitalize="words"
+                className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
+              <motion.button whileTap={{ scale: 0.97 }} onClick={createFolder}
+                disabled={!newFolderName.trim()}
+                className="w-full py-3 bg-primary-600 text-white font-semibold rounded-xl text-sm disabled:opacity-40">
+                ✓ Crea cartella
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  )
+}
+
+// ── Componenti ────────────────────────────────────────────────────────────────
+
+function FolderChip({ folder, active, onTap, onLongPress }) {
+  const lp = useLongPress(onLongPress, onTap)
+  return (
+    <button {...lp}
+      className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors select-none"
+      style={{
+        background: active ? '#6366f1' : 'rgba(255,255,255,0.06)',
+        color:      active ? '#fff'    : '#6b7280',
+      }}>
+      {folder.name}
+    </button>
+  )
+}
+
+function FileCard({ file, i, formatSize, getFileIcon, onTap, onLongPress }) {
+  const lp = useLongPress(onLongPress, onTap)
+  return (
+    <motion.div {...lp}
+      initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: i * 0.03 }}
+      className="rounded-2xl overflow-hidden select-none cursor-pointer"
+      style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
+      {file.type?.startsWith('image/') ? (
+        <div className="aspect-square overflow-hidden" style={{ background: 'var(--c-input)' }}>
+          <img src={file.url} alt={file.name} className="w-full h-full object-cover" loading="lazy" />
+        </div>
+      ) : (
+        <div className="aspect-square flex flex-col items-center justify-center gap-2"
+          style={{ background: 'rgba(99,102,241,0.06)' }}>
+          <span className="text-3xl">{getFileIcon(file.type)}</span>
+          <span className="text-xs font-bold text-primary-400 uppercase">
+            {file.name?.split('.').pop()}
+          </span>
+        </div>
+      )}
+      <div className="p-2.5">
+        <p className="text-xs font-medium truncate" style={{ color: 'var(--c-text)' }}>{file.name}</p>
+        <p className="text-xs text-gray-600 mt-0.5">
+          {formatSize(file.size)}
+          {file.createdAt && ` · ${format(file.createdAt.toDate(), 'd MMM', { locale: it })}`}
+        </p>
+      </div>
+    </motion.div>
   )
 }

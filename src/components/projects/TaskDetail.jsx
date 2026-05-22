@@ -5,7 +5,7 @@ import { db } from '../../firebase/config'
 import { uploadToCloudinary } from '../../utils/cloudinary'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useAuth } from '../../context/AuthContext'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 
@@ -16,9 +16,8 @@ const PRIORITY = {
 }
 
 const STATUS = [
-  { id: 'todo',       label: 'Da fare'  },
-  { id: 'inprogress', label: 'In corso' },
-  { id: 'done',       label: 'Fatto'    },
+  { id: 'todo', label: 'Da fare' },
+  { id: 'done', label: 'Fatto'   },
 ]
 
 const CARD = { background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: '1rem' }
@@ -35,8 +34,10 @@ export default function TaskDetail() {
   const [task, setTask]             = useState(null)
   const [comments, setComments]     = useState([])
   const [newComment, setNewComment] = useState('')
-  const [newSubtask, setNewSubtask] = useState('')
   const [uploading, setUploading]   = useState(false)
+  const [commentSheet, setCommentSheet]   = useState(null)   // commento selezionato
+  const [editingComment, setEditingComment] = useState(null) // {id, text}
+  const [attachPreview, setAttachPreview]   = useState(null) // allegato selezionato
 
   useEffect(() => {
     if (!wsId || !taskId) return
@@ -64,15 +65,18 @@ export default function TaskDetail() {
     setNewComment('')
   }
 
-  const addSubtask = async () => {
-    if (!newSubtask.trim()) return
-    await update({ subtasks: arrayUnion({ id: Date.now().toString(), title: newSubtask.trim(), done: false }) })
-    setNewSubtask('')
+  const deleteComment = async (id) => {
+    await deleteDoc(doc(db, `workspaces/${wsId}/tasks/${taskId}/comments/${id}`))
+    setCommentSheet(null)
   }
 
-  const toggleSubtask = async (subtask) => {
-    const updated = (task.subtasks || []).map(s => s.id === subtask.id ? { ...s, done: !s.done } : s)
-    await update({ subtasks: updated })
+  const saveEditComment = async () => {
+    if (!editingComment?.text?.trim()) return
+    await updateDoc(doc(db, `workspaces/${wsId}/tasks/${taskId}/comments/${editingComment.id}`), {
+      text: editingComment.text.trim(), editedAt: serverTimestamp()
+    })
+    setEditingComment(null)
+    setCommentSheet(null)
   }
 
   const uploadAttachment = async (file) => {
@@ -102,8 +106,6 @@ export default function TaskDetail() {
   )
 
   const p = PRIORITY[task.priority] || PRIORITY.medium
-  const doneCount = (task.subtasks || []).filter(s => s.done).length
-  const totalCount = (task.subtasks || []).length
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-2 pb-10 space-y-4">
@@ -135,11 +137,7 @@ export default function TaskDetail() {
           </span>
           {task.dueDate && (() => {
             const d = task.dueDate.toDate ? task.dueDate.toDate() : new Date(task.dueDate)
-            return (
-              <span className="text-xs text-gray-500">
-                · Scade {format(d, 'd MMM', { locale: it })}
-              </span>
-            )
+            return <span className="text-xs text-gray-500">· Scade {format(d, 'd MMM', { locale: it })}</span>
           })()}
         </div>
       </div>
@@ -220,63 +218,13 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* Subtask */}
-      <div style={{ ...CARD, padding: '1rem' }}>
-        <div className="flex items-center justify-between mb-3">
-          <SectionLabel>Subtask</SectionLabel>
-          {totalCount > 0 && (
-            <span className="text-xs text-gray-600">{doneCount}/{totalCount}</span>
-          )}
-        </div>
-        {totalCount > 0 && (
-          <div className="w-full rounded-full h-1 mb-3" style={{ background: 'rgba(255,255,255,0.06)' }}>
-            <div className="h-1 rounded-full bg-emerald-500 transition-all"
-              style={{ width: `${(doneCount / totalCount) * 100}%` }} />
-          </div>
-        )}
-        <div className="space-y-2 mb-3">
-          {(task.subtasks || []).map(s => (
-            <button key={s.id} onClick={() => toggleSubtask(s)}
-              className="flex items-center gap-3 w-full text-left py-0.5">
-              <div className="w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all"
-                style={{
-                  borderColor: s.done ? '#6366f1' : 'rgba(255,255,255,0.2)',
-                  background:  s.done ? '#6366f1' : 'transparent',
-                }}>
-                {s.done && (
-                  <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </div>
-              <span className={`text-sm ${s.done ? 'line-through text-gray-600' : 'text-gray-300'}`}>{s.title}</span>
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input value={newSubtask} onChange={e => setNewSubtask(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addSubtask()}
-            placeholder="Aggiungi subtask..."
-            autoComplete="off" autoCorrect="on" autoCapitalize="sentences"
-            className="flex-1 px-3 py-2 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
-            style={INPUT_STYLE} />
-          <button onClick={addSubtask}
-            className="w-9 h-9 flex items-center justify-center rounded-xl"
-            style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8' }}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
       {/* Allegati */}
       <div style={{ ...CARD, padding: '1rem' }}>
         <SectionLabel>Allegati</SectionLabel>
         <div className="space-y-2 mt-3 mb-3">
           {(task.attachments || []).map((a, i) => (
-            <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-3 p-2.5 rounded-xl transition-colors"
+            <button key={i} onClick={() => setAttachPreview(a)}
+              className="flex items-center gap-3 p-2.5 rounded-xl w-full text-left transition-colors"
               style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)' }}>
               {a.type?.startsWith('image/')
                 ? <img src={a.url} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" alt="" />
@@ -287,8 +235,11 @@ export default function TaskDetail() {
                     </svg>
                   </div>
               }
-              <span className="text-sm text-gray-300 truncate">{a.name}</span>
-            </a>
+              <span className="text-sm text-gray-300 truncate flex-1">{a.name}</span>
+              <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
           ))}
         </div>
         <input ref={fileInputRef} type="file" className="hidden"
@@ -311,6 +262,8 @@ export default function TaskDetail() {
           )}
           {comments.map(c => {
             const m = getMember(c.userId)
+            const isEditing = editingComment?.id === c.id
+            const isOwn = c.userId === user.uid
             return (
               <div key={c.id} className="flex gap-3">
                 {m?.photoURL
@@ -319,12 +272,34 @@ export default function TaskDetail() {
                       {m?.name?.charAt(0) || '?'}
                     </div>
                 }
-                <div>
+                <div className="flex-1">
                   <p className="text-xs text-gray-500 mb-0.5">
                     <span className="font-semibold text-gray-400">{m?.name?.split(' ')[0]}</span>
                     {c.createdAt ? ` · ${format(c.createdAt.toDate(), 'd MMM HH:mm', { locale: it })}` : ''}
+                    {c.editedAt && <span className="text-gray-700"> · modificato</span>}
                   </p>
-                  <p className="text-sm text-gray-300">{c.text}</p>
+                  {isEditing ? (
+                    <div className="flex gap-2 mt-1">
+                      <input autoFocus
+                        value={editingComment.text}
+                        onChange={e => setEditingComment(prev => ({ ...prev, text: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') saveEditComment(); if (e.key === 'Escape') setEditingComment(null) }}
+                        className="flex-1 px-3 py-1.5 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        style={INPUT_STYLE} />
+                      <button onClick={saveEditComment}
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+                        style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8' }}>
+                        Salva
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => isOwn && setCommentSheet(c)}
+                      className="text-sm text-gray-300 text-left w-full"
+                      style={{ cursor: isOwn ? 'pointer' : 'default' }}>
+                      {c.text}
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -357,6 +332,78 @@ export default function TaskDetail() {
         </svg>
         Elimina task
       </motion.button>
+
+      {/* Sheet azioni commento */}
+      <AnimatePresence>
+        {commentSheet && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}
+            onClick={() => setCommentSheet(null)}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="w-full max-w-lg mx-auto rounded-t-3xl overflow-hidden"
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--c-border)' }}>
+                <p className="text-xs text-gray-500 line-clamp-2">{commentSheet.text}</p>
+              </div>
+              <button
+                onClick={() => { setEditingComment({ id: commentSheet.id, text: commentSheet.text }); setCommentSheet(null) }}
+                className="w-full text-left px-5 py-4 text-sm font-medium text-gray-200">
+                ✏️  Modifica
+              </button>
+              <button onClick={() => deleteComment(commentSheet.id)}
+                className="w-full text-left px-5 py-4 text-sm font-medium text-rose-400">
+                🗑️  Elimina
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Preview allegato */}
+      <AnimatePresence>
+        {attachPreview && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex flex-col" style={{ background: '#000' }}
+            onClick={() => setAttachPreview(null)}>
+            {/* Top bar */}
+            <div className="flex items-center gap-3 px-4 flex-shrink-0"
+              style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.75rem', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(16px)' }}
+              onClick={e => e.stopPropagation()}>
+              <button onClick={() => setAttachPreview(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0"
+                style={{ background: 'rgba(255,255,255,0.15)' }}>
+                <svg className="w-4 h-4" style={{ color: 'white' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <p className="text-sm font-medium truncate flex-1" style={{ color: 'white' }}>{attachPreview.name}</p>
+            </div>
+            {/* Contenuto — clic sullo sfondo chiude */}
+            <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+              {attachPreview.type?.startsWith('image/')
+                ? <img src={attachPreview.url} alt={attachPreview.name}
+                    onClick={e => e.stopPropagation()}
+                    className="max-w-full max-h-full object-contain rounded-xl" />
+                : attachPreview.type?.includes('pdf')
+                  ? <iframe src={attachPreview.url} title={attachPreview.name}
+                      onClick={e => e.stopPropagation()}
+                      className="w-full h-full rounded-xl border-0" />
+                  : <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
+                      <span className="text-6xl">📎</span>
+                      <p style={{ color: '#9ca3af' }} className="text-sm">{attachPreview.name}</p>
+                      <a href={attachPreview.url} target="_blank" rel="noopener noreferrer"
+                        className="px-6 py-3 rounded-2xl text-sm font-semibold"
+                        style={{ background: '#6366f1', color: 'white' }}>
+                        🔗 Apri file
+                      </a>
+                    </div>
+              }
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

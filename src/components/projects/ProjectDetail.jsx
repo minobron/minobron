@@ -322,11 +322,6 @@ function TaskCard({ task, i, getMember, onOpen, onLongPress, onMarkDone }) {
               📅 {format(task.dueDate.toDate?.() || new Date(task.dueDate), 'd MMM', { locale: it })}
             </span>
           )}
-          {task.subtasks?.length > 0 && (
-            <span className="text-[10px] text-gray-600">
-              {task.subtasks.filter(s => s.done).length}/{task.subtasks.length} subtask
-            </span>
-          )}
         </div>
         <div className="flex -space-x-1.5">
           {(task.assignees || []).slice(0, 3).map(uid => {

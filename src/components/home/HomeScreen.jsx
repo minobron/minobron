@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { useWorkspace } from '../../context/WorkspaceContext'
@@ -14,10 +14,11 @@ export default function HomeScreen() {
   const { user }            = useAuth()
   const { activeWorkspace, members } = useWorkspace()
   const navigate            = useNavigate()
-  const [myTasks, setMyTasks]   = useState([])
-  const [pins, setPins]         = useState([])
-  const [activity, setActivity] = useState([])
-  const [events, setEvents]     = useState([])
+  const [myTasks, setMyTasks]     = useState([])
+  const [pins, setPins]           = useState([])
+  const [activity, setActivity]   = useState([])
+  const [events, setEvents]       = useState([])
+  const [projects, setProjects]   = useState([])
   const wsId = activeWorkspace?.id
 
   // Pin dimenticati — persistono in localStorage per workspace
@@ -77,7 +78,15 @@ export default function HomeScreen() {
     })
   }, [wsId])
 
+  useEffect(() => {
+    if (!wsId) return
+    return onSnapshot(collection(db, `workspaces/${wsId}/projects`), snap =>
+      setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+  }, [wsId])
+
   const getMember = uid => members.find(m => m.id === uid)
+  const getProject = pid => projects.find(p => p.id === pid)
 
   const formatDue = (date) => {
     if (!date) return null
@@ -150,14 +159,16 @@ export default function HomeScreen() {
                   onClick={() => navigate(`/projects/task/${task.id}`)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
                   style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
-                  <p className="flex-1 text-sm font-medium text-gray-200 truncate">{task.title}</p>
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${dot}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-200 truncate">{task.title}</p>
+                    {task.projectId && getProject(task.projectId) && (
+                      <p className="text-[10px] text-gray-600 mt-0.5 truncate">
+                        {getProject(task.projectId).emoji} {getProject(task.projectId).name}
+                      </p>
+                    )}
+                  </div>
                   {due && <span className={`text-xs flex-shrink-0 font-medium ${due.color}`}>{due.label}</span>}
-                  {task.status === 'inprogress' && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-400 font-semibold flex-shrink-0">
-                      In corso
-                    </span>
-                  )}
                 </motion.div>
               )
             })}
