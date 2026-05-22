@@ -91,15 +91,19 @@ export default function HomeScreen() {
         <Section title="In evidenza" icon="📌">
           <div className="space-y-2">
             {pins.map(pin => (
-              <div key={pin.id}
-                className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20"
+              <motion.div key={pin.id} whileTap={{ scale: 0.98 }}
+                onClick={() => navigate('/chat')}
+                className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 cursor-pointer"
                 style={{ background: 'rgba(245,158,11,0.06)' }}>
                 <span className="text-base mt-0.5">{pin.emoji || '📌'}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-white truncate">{pin.title}</p>
                   {pin.content && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{pin.content}</p>}
                 </div>
-              </div>
+                <svg className="w-4 h-4 text-gray-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </motion.div>
             ))}
           </div>
         </Section>
@@ -126,7 +130,7 @@ export default function HomeScreen() {
                   whileTap={{ scale: 0.98 }}
                   onClick={() => navigate(`/projects/task/${task.id}`)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
-                  style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
                   <p className="flex-1 text-sm font-medium text-gray-200 truncate">{task.title}</p>
                   {due && <span className={`text-xs flex-shrink-0 font-medium ${due.color}`}>{due.label}</span>}
@@ -149,9 +153,10 @@ export default function HomeScreen() {
             {events.map(ev => {
               const date = ev.date?.toDate ? ev.date.toDate() : new Date(ev.date)
               return (
-                <div key={ev.id}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                  style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <motion.div key={ev.id} whileTap={{ scale: 0.98 }}
+                  onClick={() => navigate('/calendar')}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
+                  style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
                   <div className="w-10 h-10 rounded-xl bg-primary-500/15 flex flex-col items-center justify-center flex-shrink-0">
                     <span className="text-[10px] font-bold text-primary-400 uppercase leading-none">
                       {format(date, 'MMM', { locale: it })}
@@ -160,11 +165,14 @@ export default function HomeScreen() {
                       {format(date, 'd')}
                     </span>
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-200">{ev.title}</p>
                     {ev.description && <p className="text-xs text-gray-500 mt-0.5">{ev.description}</p>}
                   </div>
-                </div>
+                  <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </motion.div>
               )
             })}
           </div>

@@ -131,6 +131,32 @@ html {
 }
 
 /* ============================================================
+   Light mode — override testo e sfondi hardcoded
+   ============================================================ */
+html:not(.dark) body {
+  color: #111118;
+  background-color: var(--c-bg);
+}
+
+/* Forza testo scuro su classi Tailwind che usano colori chiari */
+html:not(.dark) .text-white   { color: #111118 !important; }
+html:not(.dark) .text-gray-100 { color: #111118 !important; }
+html:not(.dark) .text-gray-200 { color: #1e1e2e !important; }
+html:not(.dark) .text-gray-300 { color: #2e2e3e !important; }
+html:not(.dark) .text-gray-400 { color: #555570 !important; }
+html:not(.dark) .text-gray-500 { color: #6e6e8e !important; }
+html:not(.dark) .text-gray-600 { color: #8888a8 !important; }
+html:not(.dark) .text-gray-700 { color: #9898b8 !important; }
+
+/* Bordi bianchi trasparenti → grigi in light mode */
+html:not(.dark) [style*="rgba(255,255,255,0.0"] {
+  /* gestito tramite var(--c-border) dove già implementato */
+}
+
+/* Placeholder */
+html:not(.dark) ::placeholder { color: #9090a8; }
+
+/* ============================================================
    Animazioni
    ============================================================ */
 @layer utilities {
