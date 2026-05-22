@@ -165,16 +165,15 @@ export default function ArchiveScreen() {
   // ── Preview helpers ───────────────────────────────────────────────────────
 
   // Ritorna l'URL da usare nell'iframe per il tipo di file, o null se non supportato
+  // PDF escluso: viene aperto nativamente con window.open (Safari iOS non supporta iframe PDF)
   const getPreviewUrl = (file) => {
     const enc = encodeURIComponent(file.url)
     if (file.type?.startsWith('image/')) return null // immagine, non serve iframe
-    if (file.type?.includes('pdf') || file.name?.match(/\.pdf$/i))
-      return `https://docs.google.com/viewer?url=${enc}&embedded=true`
     if (file.type?.includes('word') || file.name?.match(/\.(doc|docx)$/i))
       return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
     if (file.type?.includes('sheet') || file.type?.includes('excel') || file.name?.match(/\.(xls|xlsx)$/i))
       return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
-    return null  // HTML e altri formati non supportati in anteprima
+    return null  // altri formati non supportati in anteprima
   }
 
   // Scarica il file nella cartella Download tramite fetch+blob (funziona cross-origin)
@@ -310,6 +309,26 @@ export default function ArchiveScreen() {
                       className="max-w-full max-h-full object-contain rounded-xl" />
                   )
                 }
+                // PDF: apertura nativa — gli iframe PDF non funzionano su Safari iOS in PWA
+                if (preview.type?.includes('pdf') || preview.name?.match(/\.pdf$/i)) {
+                  return (
+                    <div className="flex flex-col items-center gap-5" onClick={e => e.stopPropagation()}>
+                      <span className="text-7xl">📄</span>
+                      <p className="text-sm font-medium text-center px-4" style={{ color: '#e5e7eb' }}>
+                        {preview.name}
+                      </p>
+                      <button
+                        onClick={() => window.open(preview.url, '_blank')}
+                        className="px-8 py-3.5 rounded-2xl text-sm font-semibold"
+                        style={{ background: '#6366f1', color: 'white' }}>
+                        Apri PDF
+                      </button>
+                      <p className="text-xs text-center px-6" style={{ color: '#6b7280' }}>
+                        Si apre nel visualizzatore del dispositivo
+                      </p>
+                    </div>
+                  )
+                }
                 const iframeUrl = getPreviewUrl(preview)
                 if (iframeUrl) {
                   return (
@@ -325,7 +344,7 @@ export default function ArchiveScreen() {
                     <span className="text-6xl">{getFileIcon(preview.type)}</span>
                     <p className="text-sm text-center" style={{ color: '#9ca3af' }}>{preview.name}</p>
                     <p className="text-xs text-center" style={{ color: '#6b7280' }}>
-                      Formato non visualizzabile — usa Apri o Scarica
+                      Formato non visualizzabile — usa Salva per aprirlo
                     </p>
                   </div>
                 )
