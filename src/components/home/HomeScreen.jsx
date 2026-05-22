@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore'
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { useWorkspace } from '../../context/WorkspaceContext'
@@ -15,25 +15,11 @@ export default function HomeScreen() {
   const { activeWorkspace, members } = useWorkspace()
   const navigate            = useNavigate()
   const [myTasks, setMyTasks]     = useState([])
-  const [pins, setPins]           = useState([])
   const [activity, setActivity]   = useState([])
   const [events, setEvents]       = useState([])
   const [projects, setProjects]   = useState([])
   const wsId = activeWorkspace?.id
 
-  // Pin dimenticati — persistono in localStorage per workspace
-  const dismissKey = `dismissed_pins_${wsId}`
-  const [dismissedPins, setDismissedPins] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`dismissed_pins_${wsId}`) || '[]') }
-    catch { return [] }
-  })
-  const dismissPin = (pinId, e) => {
-    e.stopPropagation()
-    const next = [...dismissedPins, pinId]
-    setDismissedPins(next)
-    localStorage.setItem(dismissKey, JSON.stringify(next))
-  }
-  const visiblePins = pins.filter(p => !dismissedPins.includes(p.id))
 
   useEffect(() => {
     if (!wsId || !user) return
@@ -50,12 +36,6 @@ export default function HomeScreen() {
       setMyTasks(active)
     })
   }, [wsId, user])
-
-  useEffect(() => {
-    if (!wsId) return
-    const q = query(collection(db, `workspaces/${wsId}/pins`), orderBy('createdAt', 'desc'), limit(5))
-    return onSnapshot(q, snap => setPins(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-  }, [wsId])
 
   useEffect(() => {
     if (!wsId) return
@@ -108,34 +88,6 @@ export default function HomeScreen() {
           {format(new Date(), "EEEE d MMMM", { locale: it })}
         </p>
       </motion.div>
-
-      {/* In evidenza — sparisce quando tutti i pin sono dimenticati */}
-      {visiblePins.length > 0 && (
-        <Section title="In evidenza" icon="📌">
-          <div className="space-y-2">
-            {visiblePins.map(pin => (
-              <motion.div key={pin.id} whileTap={{ scale: 0.98 }}
-                onClick={() => navigate('/calendar')}
-                className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 cursor-pointer"
-                style={{ background: 'rgba(245,158,11,0.06)' }}>
-                <span className="text-base mt-0.5">{pin.emoji || '📌'}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">{pin.title}</p>
-                  {pin.content && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{pin.content}</p>}
-                </div>
-                {/* Tasto × per far sparire la notifica */}
-                <button
-                  onClick={(e) => dismissPin(pin.id, e)}
-                  className="text-amber-600 hover:text-amber-400 flex-shrink-0 p-0.5 -mr-0.5">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </motion.div>
-            ))}
-          </div>
-        </Section>
-      )}
 
       {/* I miei task */}
       <Section

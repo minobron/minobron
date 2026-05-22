@@ -174,9 +174,7 @@ export default function ArchiveScreen() {
       return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
     if (file.type?.includes('sheet') || file.type?.includes('excel') || file.name?.match(/\.(xls|xlsx)$/i))
       return `https://view.officeapps.live.com/op/embed.aspx?src=${enc}`
-    if (file.type?.startsWith('text/html') || file.name?.match(/\.html?$/i))
-      return file.url
-    return null
+    return null  // HTML e altri formati non supportati in anteprima
   }
 
   // Scarica il file nella cartella Download tramite fetch+blob (funziona cross-origin)
@@ -334,19 +332,14 @@ export default function ArchiveScreen() {
               })()}
             </div>
 
-            {/* Azioni: Apri + Scarica + Elimina */}
+            {/* Azioni: Salva + Elimina */}
             <div className="flex gap-3 px-4 flex-shrink-0"
               style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
               onClick={e => e.stopPropagation()}>
-              <a href={preview.url} target="_blank" rel="noopener noreferrer"
-                className="flex-1 py-3 rounded-2xl text-center text-sm font-semibold"
-                style={{ background: '#6366f1', color: 'white' }}>
-                🔗 Apri
-              </a>
               <button onClick={() => downloadFile(preview.url, preview.name)}
                 className="flex-1 py-3 rounded-2xl text-sm font-semibold"
-                style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }}>
-                ⬇️ Scarica
+                style={{ background: '#6366f1', color: 'white' }}>
+                ⬇️ Salva
               </button>
               <button onClick={() => deleteFile(preview.id)}
                 className="px-4 py-3 rounded-2xl text-sm font-semibold text-rose-400"

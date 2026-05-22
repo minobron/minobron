@@ -17,8 +17,13 @@ export async function uploadToCloudinary(file) {
   formData.append('upload_preset', UPLOAD_PRESET)
   formData.append('folder', 'minobron')
 
+  // Immagini e video: auto (ottimizzazione Cloudinary)
+  // Tutti gli altri (PDF, Word, Excel, ecc.): raw — preserva il file originale senza conversioni
+  const isMedia = file.type?.startsWith('image/') || file.type?.startsWith('video/') || file.type?.startsWith('audio/')
+  const resourceType = isMedia ? 'auto' : 'raw'
+
   const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
+    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
     { method: 'POST', body: formData }
   )
 
