@@ -26,10 +26,10 @@ export default function LoginScreen() {
         {/* Features */}
         <div className="flex flex-col gap-3 w-full">
           {[
-            { icon: '📋', label: 'Task condivisi con priorità' },
-            { icon: '💬', label: 'Chat con @menzioni' },
+            { icon: '📋', label: 'Task condivisi' },
             { icon: '📅', label: 'Calendario e scadenze' },
             { icon: '📁', label: 'Archivio documenti e foto' },
+            { icon: '🔥', label: 'E altro ancora...' },
           ].map(f => (
             <div key={f.label} className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 rounded-2xl shadow-sm">
               <span className="text-xl">{f.icon}</span>
