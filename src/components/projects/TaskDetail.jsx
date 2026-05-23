@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, onSnapshot, updateDoc, addDoc, deleteDoc, collection, serverTimestamp, arrayUnion, increment } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, addDoc, deleteDoc, getDoc, collection, serverTimestamp, arrayUnion, increment } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { uploadToCloudinary } from '../../utils/cloudinary'
 import { useWorkspace } from '../../context/WorkspaceContext'
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import ConfirmDialog from '../shared/ConfirmDialog'
+import { sendTaskAssignedEmail } from '../../utils/emailjs'
 
 const PRIORITY = {
   high:   { label: 'Alta',   dot: '#f43f5e', badge: 'rgba(244,63,94,0.15)',  text: '#fb7185' },
@@ -17,8 +18,9 @@ const PRIORITY = {
 }
 
 const STATUS = [
-  { id: 'todo', label: 'Da fare' },
-  { id: 'done', label: 'Fatto'   },
+  { id: 'todo',        label: 'Da fare',  color: '#9ca3af', bg: 'rgba(255,255,255,0.06)' },
+  { id: 'in_progress', label: 'In corso', color: '#fbbf24', bg: 'rgba(251,191,36,0.15)'  },
+  { id: 'done',        label: 'Fatto',    color: '#4ade80', bg: 'rgba(34,197,94,0.15)'   },
 ]
 
 const CARD = { background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: '1rem' }
@@ -36,9 +38,9 @@ export default function TaskDetail() {
   const [comments, setComments]     = useState([])
   const [newComment, setNewComment] = useState('')
   const [uploading, setUploading]   = useState(false)
-  const [commentSheet, setCommentSheet]   = useState(null)   // commento selezionato
-  const [editingComment, setEditingComment] = useState(null) // {id, text}
-  const [attachPreview, setAttachPreview]   = useState(null) // allegato selezionato
+  const [commentSheet, setCommentSheet]   = useState(null)
+  const [editingComment, setEditingComment] = useState(null)
+  const [attachPreview, setAttachPreview]   = useState(null)
   const [confirmDelete, setConfirmDelete]   = useState(false)
 
   useEffect(() => {
@@ -59,6 +61,33 @@ export default function TaskDetail() {
   const update = (data) =>
     updateDoc(doc(db, `workspaces/${wsId}/tasks/${taskId}`), { ...data, updatedAt: serverTimestamp() })
 
+  // Aggiorna assegnatari + manda email ai nuovi aggiunti
+  const toggleAssignee = async (m, currentlyAssigned) => {
+    const cur = task.assignees || []
+    if (currentlyAssigned) {
+      await update({ assignees: cur.filter(x => x !== m.id) })
+    } else {
+      await update({ assignees: [...cur, m.id] })
+      // Manda email solo se non è il proprio account
+      if (m.id !== user.uid && m.email) {
+        let projectName = ''
+        if (task.projectId) {
+          try {
+            const pSnap = await getDoc(doc(db, `workspaces/${wsId}/projects/${task.projectId}`))
+            if (pSnap.exists()) projectName = pSnap.data().name || ''
+          } catch (_) {}
+        }
+        sendTaskAssignedEmail({
+          toEmail: m.email,
+          toName:  m.name || m.email,
+          fromName: user.name || user.email,
+          taskTitle: task.title,
+          projectName,
+        })
+      }
+    }
+  }
+
   const addComment = async () => {
     if (!newComment.trim()) return
     await addDoc(collection(db, `workspaces/${wsId}/tasks/${taskId}/comments`), {
@@ -77,8 +106,7 @@ export default function TaskDetail() {
     await updateDoc(doc(db, `workspaces/${wsId}/tasks/${taskId}/comments/${editingComment.id}`), {
       text: editingComment.text.trim(), editedAt: serverTimestamp()
     })
-    setEditingComment(null)
-    setCommentSheet(null)
+    setEditingComment(null); setCommentSheet(null)
   }
 
   const uploadAttachment = async (file) => {
@@ -119,7 +147,7 @@ export default function TaskDetail() {
             onClick={() => update({ status: task.status === 'done' ? 'todo' : 'done' })}
             className="mt-0.5 flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all"
             style={{
-              borderColor: task.status === 'done' ? '#22c55e' : 'rgba(255,255,255,0.2)',
+              borderColor: task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#fbbf24' : 'rgba(255,255,255,0.2)',
               background:  task.status === 'done' ? '#22c55e' : 'transparent',
             }}>
             {task.status === 'done' && (
@@ -127,12 +155,18 @@ export default function TaskDetail() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
               </svg>
             )}
+            {task.status === 'in_progress' && (
+              <div className="w-2 h-2 rounded-full bg-amber-400" />
+            )}
           </button>
-          <h1 className={`text-lg font-bold leading-snug flex-1 ${task.status === 'done' ? 'line-through text-gray-500' : 'text-white'}`}>
+          <h1 className={`text-lg font-bold leading-snug flex-1 ${
+            task.status === 'done' ? 'line-through text-gray-500' :
+            task.status === 'in_progress' ? 'text-amber-100' : 'text-white'
+          }`}>
             {task.title}
           </h1>
         </div>
-        <div className="flex items-center gap-2 mt-3 ml-9">
+        <div className="flex items-center gap-2 mt-3 ml-9 flex-wrap">
           <span className="text-xs px-2.5 py-1 rounded-full font-semibold"
             style={{ background: p.badge, color: p.text }}>
             {p.label} priorità
@@ -141,6 +175,9 @@ export default function TaskDetail() {
             const d = task.dueDate.toDate ? task.dueDate.toDate() : new Date(task.dueDate)
             return <span className="text-xs text-gray-500">· Scade {format(d, 'd MMM', { locale: it })}</span>
           })()}
+          {task.createdByName && (
+            <span className="text-xs text-gray-700">· Creato da {task.createdByName}</span>
+          )}
         </div>
       </div>
 
@@ -169,9 +206,9 @@ export default function TaskDetail() {
             <button key={s.id} onClick={() => update({ status: s.id })}
               className="flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all"
               style={{
-                background: task.status === s.id ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
-                color:      task.status === s.id ? '#818cf8' : '#6b7280',
-                border:     task.status === s.id ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.06)',
+                background: task.status === s.id ? s.bg : 'rgba(255,255,255,0.04)',
+                color:      task.status === s.id ? s.color : '#6b7280',
+                border:     task.status === s.id ? `1px solid ${s.color}40` : '1px solid rgba(255,255,255,0.06)',
               }}>
               {s.label}
             </button>
@@ -197,10 +234,7 @@ export default function TaskDetail() {
             const assigned = (task.assignees || []).includes(m.id)
             return (
               <button key={m.id}
-                onClick={() => {
-                  const cur = task.assignees || []
-                  update({ assignees: assigned ? cur.filter(x => x !== m.id) : [...cur, m.id] })
-                }}
+                onClick={() => toggleAssignee(m, assigned)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
                 style={{
                   background: assigned ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)',
@@ -233,7 +267,8 @@ export default function TaskDetail() {
                 : <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                     style={{ background: 'rgba(99,102,241,0.15)' }}>
                     <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                   </div>
               }
@@ -249,7 +284,8 @@ export default function TaskDetail() {
         <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
           className="flex items-center gap-2 text-sm font-medium text-primary-400 disabled:opacity-40">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
           {uploading ? 'Caricamento...' : 'Aggiungi allegato'}
         </button>
@@ -337,7 +373,6 @@ export default function TaskDetail() {
         </motion.button>
       )}
 
-      {/* Dialogo conferma elimina task */}
       <ConfirmDialog
         open={confirmDelete}
         title={`Eliminare "${task?.title}"?`}
@@ -381,7 +416,6 @@ export default function TaskDetail() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex flex-col" style={{ background: '#000' }}
             onClick={() => setAttachPreview(null)}>
-            {/* Top bar */}
             <div className="flex items-center gap-3 px-4 flex-shrink-0"
               style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.75rem', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(16px)' }}
               onClick={e => e.stopPropagation()}>
@@ -394,7 +428,6 @@ export default function TaskDetail() {
               </button>
               <p className="text-sm font-medium truncate flex-1" style={{ color: 'white' }}>{attachPreview.name}</p>
             </div>
-            {/* Contenuto — clic sullo sfondo chiude */}
             <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
               {attachPreview.type?.startsWith('image/')
                 ? <img src={attachPreview.url} alt={attachPreview.name}

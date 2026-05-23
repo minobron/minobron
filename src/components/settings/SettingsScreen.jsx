@@ -250,7 +250,7 @@ export default function SettingsScreen() {
         </motion.button>
       </Group>
 
-      <p className="text-center text-xs text-gray-800 pb-2">Minobron v4.0</p>
+      <p className="text-center text-xs text-gray-800 pb-2">Mino v4.1</p>
 
       {/* Dialogo conferma rimozione membro */}
       <ConfirmDialog

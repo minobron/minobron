@@ -4,7 +4,7 @@ import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { useWorkspace } from '../../context/WorkspaceContext'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { format, isToday, isTomorrow } from 'date-fns'
 import { it } from 'date-fns/locale'
 
@@ -20,6 +20,20 @@ export default function HomeScreen() {
   const [projects, setProjects]   = useState([])
   const wsId = activeWorkspace?.id
 
+  // Accordion — localStorage per utente
+  const accKey = user ? `mino_home_acc_${user.uid}` : null
+  const [accordion, setAccordion] = useState(() => {
+    if (!accKey) return { tasks: true, events: true, activity: true }
+    try { return JSON.parse(localStorage.getItem(accKey)) || { tasks: true, events: true, activity: true } }
+    catch { return { tasks: true, events: true, activity: true } }
+  })
+  const toggleAcc = (key) => {
+    setAccordion(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      if (accKey) localStorage.setItem(accKey, JSON.stringify(next))
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!wsId || !user) return
@@ -90,10 +104,11 @@ export default function HomeScreen() {
       </motion.div>
 
       {/* I miei task */}
-      <Section
-        title="I miei task"
-        icon="✅"
+      <AccordionSection
+        title="I miei task" icon="✅"
         badge={myTasks.length || null}
+        open={accordion.tasks}
+        onToggle={() => toggleAcc('tasks')}
         action={{ label: 'Vedi tutti', onClick: () => navigate('/projects') }}
       >
         {myTasks.length === 0 ? (
@@ -103,6 +118,7 @@ export default function HomeScreen() {
             {myTasks.slice(0, 6).map((task, i) => {
               const dot = PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium
               const due = formatDue(task.dueDate)
+              const isInProgress = task.status === 'in_progress'
               return (
                 <motion.div key={task.id}
                   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -113,24 +129,35 @@ export default function HomeScreen() {
                   style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${dot}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-200 truncate">{task.title}</p>
+                    <p className={`text-sm font-medium truncate ${isInProgress ? 'text-amber-200' : 'text-gray-200'}`}>
+                      {task.title}
+                    </p>
                     {task.projectId && getProject(task.projectId) && (
                       <p className="text-[10px] text-gray-600 mt-0.5 truncate">
                         {getProject(task.projectId).emoji} {getProject(task.projectId).name}
                       </p>
                     )}
                   </div>
-                  {due && <span className={`text-xs flex-shrink-0 font-medium ${due.color}`}>{due.label}</span>}
+                  {isInProgress && (
+                    <span className="text-[10px] font-semibold text-amber-400 flex-shrink-0">In corso</span>
+                  )}
+                  {due && !isInProgress && (
+                    <span className={`text-xs flex-shrink-0 font-medium ${due.color}`}>{due.label}</span>
+                  )}
                 </motion.div>
               )
             })}
           </div>
         )}
-      </Section>
+      </AccordionSection>
 
       {/* Prossimi eventi */}
       {events.length > 0 && (
-        <Section title="Prossimi eventi" icon="📅">
+        <AccordionSection
+          title="Prossimi eventi" icon="📅"
+          open={accordion.events}
+          onToggle={() => toggleAcc('events')}
+        >
           <div className="space-y-1.5">
             {events.map(ev => {
               const date = ev.date?.toDate ? ev.date.toDate() : new Date(ev.date)
@@ -158,12 +185,16 @@ export default function HomeScreen() {
               )
             })}
           </div>
-        </Section>
+        </AccordionSection>
       )}
 
       {/* Attività recente */}
       {activity.length > 0 && (
-        <Section title="Attività recente" icon="🕐">
+        <AccordionSection
+          title="Attività recente" icon="🕐"
+          open={accordion.activity}
+          onToggle={() => toggleAcc('activity')}
+        >
           <div>
             {activity.map(a => {
               const actor = getMember(a.userId)
@@ -181,16 +212,16 @@ export default function HomeScreen() {
               )
             })}
           </div>
-        </Section>
+        </AccordionSection>
       )}
     </div>
   )
 }
 
-function Section({ title, icon, badge, action, children }) {
+function AccordionSection({ title, icon, badge, action, open, onToggle, children }) {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="flex items-center justify-between mb-2.5">
+      <button onClick={onToggle} className="flex items-center justify-between w-full mb-2.5 text-left">
         <div className="flex items-center gap-2">
           <span className="text-base">{icon}</span>
           <h3 className="text-sm font-semibold text-gray-300">{title}</h3>
@@ -200,13 +231,31 @@ function Section({ title, icon, badge, action, children }) {
             </span>
           )}
         </div>
-        {action && (
-          <button onClick={action.onClick} className="text-xs text-primary-400 font-medium">
-            {action.label}
-          </button>
+        <div className="flex items-center gap-2">
+          {action && open && (
+            <span
+              onClick={e => { e.stopPropagation(); action.onClick() }}
+              className="text-xs text-primary-400 font-medium">
+              {action.label}
+            </span>
+          )}
+          <svg className={`w-4 h-4 text-gray-600 transition-transform ${open ? '' : '-rotate-90'}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden">
+            {children}
+          </motion.div>
         )}
-      </div>
-      {children}
+      </AnimatePresence>
     </motion.div>
   )
 }
