@@ -52,7 +52,7 @@ export default function LoginScreen() {
         </motion.button>
 
         <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
-          Accedendo accetti i termini di utilizzo. I tuoi dati sono privati e visibili solo al tuo team.
+          Accedendo accetti il fatto che io sia il tuo capo d'ora in poi.
         </p>
       </motion.div>
     </div>
