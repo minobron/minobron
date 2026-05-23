@@ -14,9 +14,7 @@ export default function LoginScreen() {
       >
         {/* Logo */}
         <div className="flex flex-col items-center gap-4">
-          <div className="w-20 h-20 rounded-3xl bg-primary-500 flex items-center justify-center shadow-lg shadow-primary-200 dark:shadow-primary-900">
-            <span className="text-white text-3xl font-bold">M</span>
-          </div>
+          <img src="/icons/icon-192.png" alt="Mino" className="w-20 h-20 rounded-3xl shadow-lg" />
           <div className="text-center">
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Mino</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Il tuo spazio di lavoro condiviso</p>
