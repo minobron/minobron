@@ -10,6 +10,12 @@ import ConfirmDialog from '../shared/ConfirmDialog'
 
 const USER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
+const slideVariants = {
+  enter: (dir) => ({ x: dir >= 0 ? '100%' : '-100%', opacity: 0   }),
+  center:        ({ x: 0,                               opacity: 1   }),
+  exit:  (dir) => ({ x: dir >= 0 ? '-100%' : '100%',  opacity: 0   }),
+}
+
 export default function CalendarScreen() {
   const { activeWorkspace } = useWorkspace()
   const { user }            = useAuth()
@@ -17,6 +23,7 @@ export default function CalendarScreen() {
   const touchStartX         = useRef(null)
 
   const [current, setCurrent]     = useState(new Date())
+  const [direction, setDirection] = useState(0)
   const [events, setEvents]       = useState([])
   const [selected, setSelected]   = useState(new Date())
   const [showNew, setShowNew]     = useState(false)
@@ -27,7 +34,7 @@ export default function CalendarScreen() {
   const [newLink, setNewLink]     = useState('')
   const [search, setSearch]       = useState('')
   const [selectedEvent, setSelectedEvent] = useState(null)
-  const [confirmDelete, setConfirmDelete] = useState(null) // evento da eliminare
+  const [confirmDelete, setConfirmDelete] = useState(null)
 
   useEffect(() => {
     if (!wsId) return
@@ -35,12 +42,14 @@ export default function CalendarScreen() {
     return onSnapshot(q, snap => setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [wsId])
 
+  const goNext = () => { setDirection(1);  setCurrent(d => addMonths(d, 1)) }
+  const goPrev = () => { setDirection(-1); setCurrent(d => subMonths(d, 1)) }
+
   const createEvent = async () => {
     if (!newTitle.trim()) return
-    const date = new Date(`${newDate}T${newTime}:00`)
-    // Normalizza il link: aggiunge https:// se manca
+    const date    = new Date(`${newDate}T${newTime}:00`)
     const rawLink = newLink.trim()
-    const link = rawLink && !rawLink.match(/^https?:\/\//i) ? `https://${rawLink}` : rawLink
+    const link    = rawLink && !rawLink.match(/^https?:\/\//i) ? `https://${rawLink}` : rawLink
     await addDoc(collection(db, `workspaces/${wsId}/events`), {
       title: newTitle.trim(), description: newDesc.trim(),
       link: link || null,
@@ -56,32 +65,34 @@ export default function CalendarScreen() {
     setSelectedEvent(null)
   }
 
-  // Swipe gesti per cambiare mese
-  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX }
-  const handleTouchEnd   = (e) => {
+  // Swipe SOLO sulla griglia del calendario
+  const handleCalTouchStart = (e) => { touchStartX.current = e.touches[0].clientX }
+  const handleCalTouchEnd   = (e) => {
     if (touchStartX.current === null) return
     const diff = e.changedTouches[0].clientX - touchStartX.current
-    if (Math.abs(diff) > 50) {
-      diff < 0 ? setCurrent(d => addMonths(d, 1)) : setCurrent(d => subMonths(d, 1))
+    if (Math.abs(diff) > 40) {
+      diff < 0 ? goNext() : goPrev()
     }
     touchStartX.current = null
   }
 
-  const days         = eachDayOfInterval({ start: startOfMonth(current), end: endOfMonth(current) })
-  const firstDay     = (startOfMonth(current).getDay() + 6) % 7
+  const days      = eachDayOfInterval({ start: startOfMonth(current), end: endOfMonth(current) })
+  const firstDay  = (startOfMonth(current).getDay() + 6) % 7
+  const monthKey  = format(current, 'yyyy-MM')
+
   const searchActive = search.trim().length > 0
   const selectedEvs  = searchActive
     ? events.filter(e => e.title?.toLowerCase().includes(search.toLowerCase()))
     : events.filter(e => isSameDay(e.date?.toDate ? e.date.toDate() : new Date(e.date), selected))
-  const hasEvents    = (day) => events.some(e => isSameDay(e.date?.toDate ? e.date.toDate() : new Date(e.date), day))
+  const hasEvents = (day) =>
+    events.some(e => isSameDay(e.date?.toDate ? e.date.toDate() : new Date(e.date), day))
 
   return (
-    <div className="max-w-lg mx-auto pb-4"
-      onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <div className="max-w-lg mx-auto pb-4">
 
       {/* Navigazione mese */}
       <div className="flex items-center justify-between px-4 py-3">
-        <button onClick={() => setCurrent(d => subMonths(d, 1))}
+        <button onClick={goPrev}
           className="w-9 h-9 flex items-center justify-center rounded-xl"
           style={{ background: 'rgba(255,255,255,0.05)' }}>
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,7 +105,7 @@ export default function CalendarScreen() {
           </h2>
           <p className="text-[10px] text-gray-600 mt-0.5">{USER_TZ}</p>
         </div>
-        <button onClick={() => setCurrent(d => addMonths(d, 1))}
+        <button onClick={goNext}
           className="w-9 h-9 flex items-center justify-center rounded-xl"
           style={{ background: 'rgba(255,255,255,0.05)' }}>
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -103,7 +114,7 @@ export default function CalendarScreen() {
         </button>
       </div>
 
-      {/* Barra di ricerca eventi */}
+      {/* Barra di ricerca */}
       <div className="relative mx-4 mb-3">
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none"
           fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -125,31 +136,50 @@ export default function CalendarScreen() {
         )}
       </div>
 
-      {/* Griglia calendario (nascosta durante la ricerca) */}
+      {/* Griglia calendario con animazione slide */}
       {!searchActive && (
-        <div className="mx-4 rounded-2xl overflow-hidden mb-4" style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
+        <div className="mx-4 rounded-2xl overflow-hidden mb-4"
+          style={{ background: 'var(--c-card)', border: '1px solid var(--c-border)' }}>
+
+          {/* Header giorni settimana — statico */}
           <div className="grid grid-cols-7" style={{ borderBottom: '1px solid var(--c-border)' }}>
             {['L','M','M','G','V','S','D'].map((d, i) => (
               <div key={i} className="py-2 text-center text-xs font-semibold text-gray-600">{d}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7">
-            {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
-            {days.map(day => {
-              const isSel = isSameDay(day, selected)
-              const isCur = isToday(day)
-              const hasEv = hasEvents(day)
-              return (
-                <button key={day.toISOString()} onClick={() => setSelected(day)}
-                  className="relative flex flex-col items-center py-2.5 transition-colors"
-                  style={{ background: isSel ? '#6366f1' : isCur ? 'rgba(99,102,241,0.1)' : 'transparent' }}>
-                  <span className={`text-sm font-medium ${isSel ? 'text-white' : isCur ? 'text-primary-400' : 'text-gray-400'}`}>
-                    {format(day, 'd')}
-                  </span>
-                  {hasEv && <div className={`w-1 h-1 rounded-full mt-0.5 ${isSel ? 'bg-white/60' : 'bg-primary-400'}`} />}
-                </button>
-              )
-            })}
+
+          {/* Griglia giorni — animata, swipe solo qui */}
+          <div className="relative overflow-hidden"
+            onTouchStart={handleCalTouchStart}
+            onTouchEnd={handleCalTouchEnd}>
+            <AnimatePresence initial={false} custom={direction} mode="popLayout">
+              <motion.div
+                key={monthKey}
+                custom={direction}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ type: 'tween', duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
+                className="grid grid-cols-7">
+                {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+                {days.map(day => {
+                  const isSel = isSameDay(day, selected)
+                  const isCur = isToday(day)
+                  const hasEv = hasEvents(day)
+                  return (
+                    <button key={day.toISOString()} onClick={() => setSelected(day)}
+                      className="relative flex flex-col items-center py-2.5 transition-colors"
+                      style={{ background: isSel ? '#6366f1' : isCur ? 'rgba(99,102,241,0.1)' : 'transparent' }}>
+                      <span className={`text-sm font-medium ${isSel ? 'text-white' : isCur ? 'text-primary-400' : 'text-gray-400'}`}>
+                        {format(day, 'd')}
+                      </span>
+                      {hasEv && <div className={`w-1 h-1 rounded-full mt-0.5 ${isSel ? 'bg-white/60' : 'bg-primary-400'}`} />}
+                    </button>
+                  )
+                })}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
       )}
@@ -215,14 +245,12 @@ export default function CalendarScreen() {
                 style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
                 onClick={e => e.stopPropagation()}>
                 <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
-
                 <div>
                   <h3 className="text-lg font-bold text-white">{selectedEvent.title}</h3>
                   {selectedEvent.description && (
                     <p className="text-sm text-gray-400 mt-1">{selectedEvent.description}</p>
                   )}
                 </div>
-
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 py-2" style={{ borderBottom: '1px solid var(--c-border)' }}>
                     <span className="text-sm text-gray-500 w-16 flex-shrink-0">Data</span>
@@ -259,7 +287,6 @@ export default function CalendarScreen() {
                     </div>
                   )}
                 </div>
-
                 <motion.button whileTap={{ scale: 0.97 }}
                   onClick={() => setConfirmDelete(selectedEvent)}
                   className="w-full py-3 rounded-xl text-sm font-semibold text-rose-400"
@@ -272,7 +299,6 @@ export default function CalendarScreen() {
         })()}
       </AnimatePresence>
 
-      {/* Dialogo conferma elimina evento */}
       <ConfirmDialog
         open={!!confirmDelete}
         title={`Eliminare "${confirmDelete?.title}"?`}
@@ -291,12 +317,7 @@ export default function CalendarScreen() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
               className="w-full max-w-lg mx-auto rounded-t-3xl p-6 space-y-4"
-              style={{
-                background: 'var(--c-surface2)',
-                paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
-                maxHeight: '92dvh',
-                overflowY: 'auto',
-              }}
+              style={{ background: 'var(--c-surface2)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))', maxHeight: '92dvh', overflowY: 'auto' }}
               onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 rounded-full mx-auto" style={{ background: 'rgba(255,255,255,0.1)' }} />
               <div>
@@ -328,8 +349,7 @@ export default function CalendarScreen() {
 
               <input value={newLink} onChange={e => setNewLink(e.target.value)}
                 placeholder="Link (es. meet.google.com/…) — opzionale"
-                autoComplete="off" autoCorrect="off" autoCapitalize="none"
-                inputMode="url"
+                autoComplete="off" autoCorrect="off" autoCapitalize="none" inputMode="url"
                 className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 style={{ background: 'var(--c-input)', border: '1px solid var(--c-border)' }} />
 
